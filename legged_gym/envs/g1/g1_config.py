@@ -61,6 +61,7 @@ class G1RoughCfg( LeggedRobotCfg ):
         name = "g1"
         foot_name = "ankle_roll"
         penalize_contacts_on = ["hip", "knee"]
+        # terminate_after_contacts_on 指定接触后终止仿真的部位（根据指定的部位名称的接触力来判断是否终止仿真）
         terminate_after_contacts_on = ["pelvis"]
         self_collisions = 0 # 1 to disable, 0 to enable...bitwise filter
         flip_visual_attachments = False
