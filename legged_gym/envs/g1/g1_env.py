@@ -37,6 +37,8 @@ class G1Robot(LeggedRobot):
         rigid_body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
         self.rigid_body_states = gymtorch.wrap_tensor(rigid_body_state)
         self.rigid_body_states_view = self.rigid_body_states.view(self.num_envs, -1, 13)
+        # feet_state: [num_envs, feet_num, 13]
+        # 13: pos(3), quat(4), vel(3), ang_vel(3)
         self.feet_state = self.rigid_body_states_view[:, self.feet_indices, :]
         self.feet_pos = self.feet_state[:, :, :3]
         self.feet_vel = self.feet_state[:, :, 7:10]
@@ -96,6 +98,7 @@ class G1Robot(LeggedRobot):
 
         
     def _reward_contact(self):
+        # Reward for correct contact timing
         res = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         for i in range(self.feet_num):
             is_stance = self.leg_phase[:, i] < 0.55
@@ -105,6 +108,7 @@ class G1Robot(LeggedRobot):
     
     def _reward_feet_swing_height(self):
         contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
+        # Penalize feet being too low during swing phase，desired height: 0.08m
         pos_error = torch.square(self.feet_pos[:, :, 2] - 0.08) * ~contact
         return torch.sum(pos_error, dim=(1))
     
