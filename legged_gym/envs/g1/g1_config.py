@@ -94,6 +94,8 @@ class G1RoughCfgPPO( LeggedRobotCfgPPO ):
         init_noise_std = 0.8
         actor_hidden_dims = [32]
         critic_hidden_dims = [32]
+        # activation functiona for active non-linearities in the network, avoiding the output layer is always linear
+        # for learning complex control policies, 'elu' usually works best
         activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
         # only for 'ActorCriticRecurrent':
         rnn_type = 'lstm'
@@ -101,6 +103,9 @@ class G1RoughCfgPPO( LeggedRobotCfgPPO ):
         rnn_num_layers = 1
         
     class algorithm( LeggedRobotCfgPPO.algorithm ):
+        # note: The larger the value, the more random the strategy, 
+        # which is beneficial for exploration; the smaller the value, 
+        # the more deterministic the strategy. Balances exploration and exploitation.
         entropy_coef = 0.01
     class runner( LeggedRobotCfgPPO.runner ):
         policy_class_name = "ActorCriticRecurrent"
