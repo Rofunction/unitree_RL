@@ -180,6 +180,10 @@ if __name__ == "__main__":
             step_start = time.time()
             tau = pd_control(target_dof_pos, d.qpos[7:], kps, np.zeros_like(kds), d.qvel[6:], kds)
             d.ctrl[:] = tau
+            # Apply mouse perturbation to the robot: in the passive viewer, double-clicking
+            # a body + dragging only updates the visual `perturb` object unless we copy its
+            # force into d.xfrc_applied here. This is what makes push-recovery / robustness
+            mujoco.mjv_applyPerturbForce(m, d, viewer.perturb)
             # mj_step can be replaced with code that also evaluates
             # a policy and applies a control signal before stepping the physics.
             mujoco.mj_step(m, d)

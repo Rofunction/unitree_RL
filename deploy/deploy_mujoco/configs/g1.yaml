@@ -26,7 +26,6 @@ num_obs: 47
 
 cmd_init: [0.5, 0, 0]
 
-# Optional gamepad control (pygame). When enabled but no joystick is plugged in,
 # the script falls back to cmd_init. cmd is in the same units as cmd_init (m/s, rad/s).
 gamepad:
   enabled: true
