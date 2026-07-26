@@ -20,8 +20,27 @@ class G1RoughCfg( LeggedRobotCfg ):
         }
     
     class env(LeggedRobotCfg.env):
+        # --- Observation / action dimensions ---
+        # G1 overrides compute_observations() in g1_env.py, so the obs layout here
+        # differs from the base LeggedRobot. obs_buf size = 9 + 3*N + 2, N = num_actions.
+        #   [0:3]          base_ang_vel * scale
+        #   [3:6]          projected_gravity
+        #   [6:9]          commands[:3] (vx, vy, yaw_rate) * scale
+        #   [9 : 9+N]      (dof_pos - default_dof_pos) * scale
+        #   [9+N : 9+2N]   dof_vel * scale
+        #   [9+2N : 9+3N]  actions (previous step)
+        #   [9+3N : 9+3N+2] sin(phase), cos(phase)   # periodic gait prior (see _post_physics_step_callback)
+        # base_lin_vel is NOT in obs_buf (hard to measure on hardware) -> only the critic
+        # sees it via privileged_obs. With N=12: 9 + 36 + 2 = 47.
         num_observations = 47
+        # privileged obs = num_observations + base_lin_vel(3); sim-to-real: the actor/
+        # policy never depends on linear velocity, only the value network does.
         num_privileged_obs = 50
+        # num_actions = dimension of the policy action vector = number of actuated DOFs
+        # (revolute/prismatic joints in the URDF). For g1_12dof this is the 12 leg joints
+        # (6 per leg: hip pitch/roll/yaw, knee, ankle pitch/roll); arms/torso are fixed.
+        # To switch to 23-dof: set num_actions=23 -> num_observations=80, num_privileged_obs=83,
+        # and update the URDF, default_joint_angles, and PD gains accordingly.
         num_actions = 12
 
 
@@ -30,6 +49,7 @@ class G1RoughCfg( LeggedRobotCfg ):
         friction_range = [0.1, 1.25]
         randomize_base_mass = True
         added_mass_range = [-1., 3.]
+        # push robots in sim
         push_robots = True
         push_interval_s = 5
         max_push_vel_xy = 1.5
@@ -51,7 +71,8 @@ class G1RoughCfg( LeggedRobotCfg ):
                      'knee': 4,
                      'ankle': 2,
                      }  # [N*m/rad]  # [N*m*s/rad]
-        # action scale: target angle = actionScale * action + defaultAngle
+        # action scale: q_target = action_scale * action + default_joint_angle,
+        # then PD torque tau = Kp*(q_target - q) + Kd*(0 - qd)  (qd_target defaults to 0)
         action_scale = 0.25
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 4

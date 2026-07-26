@@ -1,3 +1,4 @@
+import math
 import time
 
 import mujoco.viewer
@@ -26,6 +27,99 @@ def get_gravity_orientation(quaternion):
 def pd_control(target_q, q, kp, target_dq, dq, kd):
     """Calculates torques from position commands"""
     return (target_q - q) * kp + (target_dq - dq) * kd
+
+
+class GamepadController:
+    """Lightweight pygame gamepad -> velocity-command reader.
+
+    Maps the left stick to forward/lateral velocity and the right stick X to yaw.
+    The returned cmd is in physical units [vx m/s, vy m/s, yaw rad/s], matching the
+    units of `cmd_init`, so it drops straight into `obs[6:9] = cmd * cmd_scale`.
+
+    Direction is controlled per-axis by `sign_ly/lx/rx` (+1 or -1), NOT by negating
+    the axis index (a negative index is invalid to pygame and would crash get_axis).
+    Standard gamepads read up & left as negative, so the defaults (-1) make
+    "up = forward", "left = strafe/turn left".
+
+    Falls back gracefully (active=False) when disabled in config, when pygame is not
+    installed, or when no joystick is connected -- the caller then keeps using its
+    own static cmd (e.g. cmd_init).
+    """
+
+    def __init__(self, cfg: dict):
+        self.enabled = bool(cfg.get("enabled", False))
+        self.deadzone = float(cfg.get("deadzone", 0.15))
+        # max physical command magnitudes [vx m/s, vy m/s, yaw rad/s]
+        self.max_cmd = np.array(cfg.get("max_cmd", [0.8, 0.5, 1.57]), dtype=np.float32)
+        # pygame/SDL axis indices (typical Xbox-style / Logitech F710 layout:
+        # left stick X=0, Y=1; right stick X=3). Must be non-negative ints < numaxes;
+        # abs() guards against a stray negative sign crashing get_axis().
+        self.ax_ly = abs(int(cfg.get("axis_ly", 1)))
+        self.ax_lx = abs(int(cfg.get("axis_lx", 0)))
+        self.ax_rx = abs(int(cfg.get("axis_rx", 3)))
+        # per-axis sign (+1 / -1). Standard gamepads read up & left as negative, so
+        # -1 makes "up = forward", "left = strafe/turn left". Flip to +1 to invert.
+        self.sign_ly = int(cfg.get("sign_ly", -1))
+        self.sign_lx = int(cfg.get("sign_lx", -1))
+        self.sign_rx = int(cfg.get("sign_rx", -1))
+        self.cmd = np.zeros(3, dtype=np.float32)
+        self.active = False
+        self._js = None
+        self._pg = None
+        self._numaxes = 0
+
+        if not self.enabled:
+            return
+        try:
+            import os
+            os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+            import pygame
+            pygame.init()
+            pygame.joystick.init()
+            if pygame.joystick.get_count() <= 0:
+                print("[gamepad] enabled but no joystick found -> using static cmd")
+                return
+            self._js = pygame.joystick.Joystick(0)
+            self._js.init()
+            self._pg = pygame
+            self._numaxes = self._js.get_numaxes()
+            self.active = True
+            print(f"[gamepad] connected: {self._js.get_name()} "
+                  f"({self._numaxes} axes, {self._js.get_numbuttons()} buttons)")
+            print(f"[gamepad] axes -> cmd: ly={self.ax_ly}(vx), lx={self.ax_lx}(vy), "
+                  f"rx={self.ax_rx}(yaw); signs=({self.sign_ly},{self.sign_lx},{self.sign_rx}); "
+                  f"max_cmd={self.max_cmd.tolist()}")
+            for nm, idx in (("ly", self.ax_ly), ("lx", self.ax_lx), ("rx", self.ax_rx)):
+                if not 0 <= idx < self._numaxes:
+                    print(f"[gamepad] WARNING: axis_{nm}={idx} out of range "
+                          f"[0,{self._numaxes}); that axis will read 0")
+        except Exception as e:
+            print(f"[gamepad] init failed ({e}) -> using static cmd")
+
+    def _deadzone(self, v: float) -> float:
+        if abs(v) < self.deadzone:
+            return 0.0
+        # rescale so the output rises from 0 just past the deadzone (no step jump)
+        return (v - math.copysign(self.deadzone, v)) / (1.0 - self.deadzone)
+
+    def _axis(self, idx: int) -> float:
+        """Safely read an axis value; returns 0.0 if idx is out of range
+        (prevents `pygame.error: Invalid joystick axis` on a misconfigured index)."""
+        if 0 <= idx < self._numaxes:
+            return self._js.get_axis(idx)
+        return 0.0
+
+    def update(self) -> np.ndarray:
+        """Poll the gamepad and return the current cmd [vx, vy, yaw] in m/s, rad/s."""
+        if not self.active or self._js is None:
+            return self.cmd
+        self._pg.event.pump()
+        ly = self._deadzone(self._axis(self.ax_ly)) * self.sign_ly
+        lx = self._deadzone(self._axis(self.ax_lx)) * self.sign_lx
+        rx = self._deadzone(self._axis(self.ax_rx)) * self.sign_rx
+        stick = np.array([ly, lx, rx], dtype=np.float32)
+        self.cmd = stick * self.max_cmd
+        return self.cmd
 
 
 if __name__ == "__main__":
@@ -58,8 +152,11 @@ if __name__ == "__main__":
 
         num_actions = config["num_actions"]
         num_obs = config["num_obs"]
-        
+
         cmd = np.array(config["cmd_init"], dtype=np.float32)
+        # Optional gamepad: overrides cmd every control step when active.
+        # When not active (disabled / no joystick), cmd stays at cmd_init.
+        gamepad = GamepadController(config.get("gamepad", {}))
 
     # define context variables
     action = np.zeros(num_actions, dtype=np.float32)
@@ -90,6 +187,10 @@ if __name__ == "__main__":
             counter += 1
             if counter % control_decimation == 0:
                 # Apply control signal here.
+
+                # poll the gamepad (if active) to refresh the velocity command
+                if gamepad.active:
+                    cmd = gamepad.update()
 
                 # create observation
                 qj = d.qpos[7:]

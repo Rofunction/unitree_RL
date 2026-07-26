@@ -19,6 +19,7 @@ class LeggedRobotCfg(BaseConfig):
         curriculum = True
         static_friction = 1.0
         dynamic_friction = 1.0
+        # collision 反弹系数e=v_{after}/v_{before} 0：完全不反弹；1：完全反弹.
         restitution = 0.
         # rough terrain only:
         measure_heights = True

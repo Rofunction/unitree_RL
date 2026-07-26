@@ -1,10 +1,10 @@
-# 
+#
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/motion.pt"
 policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_lstm_1.pt"
 xml_path: "{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/scene.xml"
 
 # Total simulation time
-simulation_duration: 60.0
+simulation_duration: 600.0
 # Simulation time step
 simulation_dt: 0.002
 # Controller update frequency (meets the requirement of simulation_dt * controll_decimation=0.02; 50Hz)
@@ -25,3 +25,21 @@ num_actions: 12
 num_obs: 47
 
 cmd_init: [0.5, 0, 0]
+
+# Optional gamepad control (pygame). When enabled but no joystick is plugged in,
+# the script falls back to cmd_init. cmd is in the same units as cmd_init (m/s, rad/s).
+gamepad:
+  enabled: true
+  # (left stick X=0/Y=1, right stick X=3). If your pad differs, find the indices
+  axis_ly: 1   # -> cmd[0] vx
+  axis_lx: 0   # -> cmd[1] vy
+  axis_rx: 3   # -> cmd[2] yaw
+  # per-axis sign (+1 or -1). Standard gamepads read up & left as NEGATIVE,
+  # so -1 makes "up = forward", "left = strafe/turn left". Flip any to +1 to invert.
+  sign_ly: -1   # forward/back
+  sign_lx: -1   # strafe left/right
+  sign_rx: -1   # turn left/right
+  deadzone: 0.15
+  # max physical command magnitudes; matches training command ranges
+  # (lin_vel_x/y [-1,1] m/s, ang_vel_yaw [-1,1] rad/s) and the real-robot deploy.
+  max_cmd: [1.0, 0.8, 1.57]   # [vx m/s, vy m/s, yaw rad/s]
