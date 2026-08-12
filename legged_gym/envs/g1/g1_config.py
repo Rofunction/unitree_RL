@@ -100,8 +100,8 @@ class G1RoughCfg( LeggedRobotCfg ):
             base_height = -10.0
             dof_acc = -2.5e-7
             dof_vel = -1e-3
-            feet_air_time = 0.0
-            collision = 0.0
+            feet_air_time = 0.5    # ① 启用：鼓励正常抬腿（原 0.0）。注意 0.8s 步频下摆动腿空中时间偏短，此项可能偏负，可按需回调到 0.2
+            collision = -1.0       # ① 启用：惩罚 hip/knee 自接触，抑制两腿相撞（原 0.0）
             action_rate = -0.01
             dof_pos_limits = -5.0
             alive = 0.15
@@ -109,12 +109,19 @@ class G1RoughCfg( LeggedRobotCfg ):
             contact_no_vel = -0.2
             feet_swing_height = -20.0
             contact = 0.18
+            # feet_contact_forces = -1e-3 # penalized 脚步接触力，避免跺脚太重
+            # ----- ②/③ 横向 & 转弯步态奖励：默认关闭。启用需两步：取消 g1_env.py 里对应
+            #       _reward_* 的注释，并取消下面这行的注释（两项缺一不可，否则报找不到奖励函数）-----
+            # feet_lateral_align = 0.5   # ② 横向步态：摆动腿朝指令方向移动，抑制错腿先抬/交叉
+            # turn_arc = 0.2             # ③ 转弯弧线：外脚多走、内脚当轴
 
 class G1RoughCfgPPO( LeggedRobotCfgPPO ):
     class policy:
         init_noise_std = 0.8
-        actor_hidden_dims = [32]
-        critic_hidden_dims = [32]
+        # ① 增大网络容量（原 [32]）。注意：架构变更后旧的 model_12000.pt 无法再 resume，
+        #    必须从头训练；若想基于旧 checkpoint 继续练，把这两行改回 [32] 即可。
+        actor_hidden_dims = [128, 64, 32]
+        critic_hidden_dims = [128, 64, 32]
         # activation functiona for active non-linearities in the network, avoiding the output layer is always linear
         # for learning complex control policies, 'elu' usually works best
         activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
