@@ -110,18 +110,16 @@ class G1RoughCfg( LeggedRobotCfg ):
             feet_swing_height = -20.0
             contact = 0.18
             # feet_contact_forces = -1e-3 # penalized 脚步接触力，避免跺脚太重
-            # ----- ②/③ 横向 & 转弯步态奖励：默认关闭。启用需两步：取消 g1_env.py 里对应
-            #       _reward_* 的注释，并取消下面这行的注释（两项缺一不可，否则报找不到奖励函数）-----
-            # feet_lateral_align = 0.5   # ② 横向步态：摆动腿朝指令方向移动，抑制错腿先抬/交叉
+            # ----- ②/③ 横向 & 转弯步态奖励：② 已启用（需与 g1_env.py 里的 _reward_feet_lateral_align
+            #       同时启用，缺一报找不到奖励函数）-----
+            feet_lateral_align = 0.5   # ② 横向步态：摆动腿朝指令方向移动，抑制错腿先抬/交叉
             # turn_arc = 0.2             # ③ 转弯弧线：外脚多走、内脚当轴
 
 class G1RoughCfgPPO( LeggedRobotCfgPPO ):
     class policy:
         init_noise_std = 0.8
-        # ① 增大网络容量（原 [32]）。注意：架构变更后旧的 model_12000.pt 无法再 resume，
-        #    必须从头训练；若想基于旧 checkpoint 继续练，把这两行改回 [32] 即可。
-        actor_hidden_dims = [128, 64, 32]
-        critic_hidden_dims = [128, 64, 32]
+        actor_hidden_dims = [32]
+        critic_hidden_dims = [32]
         # activation functiona for active non-linearities in the network, avoiding the output layer is always linear
         # for learning complex control policies, 'elu' usually works best
         activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
@@ -134,7 +132,7 @@ class G1RoughCfgPPO( LeggedRobotCfgPPO ):
         # note: The larger the value, the more random the strategy, 
         # which is beneficial for exploration; the smaller the value, 
         # the more deterministic the strategy. Balances exploration and exploitation.
-        entropy_coef = 0.01
+        entropy_coef = 0.005
     class runner( LeggedRobotCfgPPO.runner ):
         policy_class_name = "ActorCriticRecurrent"
         max_iterations = 10000

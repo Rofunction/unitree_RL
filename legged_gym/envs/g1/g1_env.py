@@ -127,18 +127,16 @@ class G1Robot(LeggedRobot):
         return torch.sum(torch.square(self.dof_pos[:,[1,2,7,8]]), dim=1)
 
     # ======================================================================
-    # ② feet_lateral_align —— 横向步态奖励（默认关闭）
-    #    启用方式：① 取消下面 _reward_feet_lateral_align 的注释；
-    #              ② 在 g1_config.py 的 rewards.scales 里取消注释
-    #                 feet_lateral_align = 0.5
+    # ② feet_lateral_align —— 横向步态奖励（已启用）
     #    目的：摆动腿朝指令侧(vy)移动，抑制“错腿先抬 / 交叉迈步”。
+    #    配套：g1_config.py rewards.scales 里 feet_lateral_align = 0.5
     # ------------------------------------------------------------------
-    # def _reward_feet_lateral_align(self):
-    #     contact  = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
-    #     swing    = ~contact                                  # [N, 2] True=空中
-    #     feet_vy  = self.feet_vel[:, :, 1]                    # [N, 2] 两脚横向速度
-    #     cmd_vy   = self.commands[:, 1].unsqueeze(1)          # [N, 1] 横向指令
-    #     return torch.sum(feet_vy * cmd_vy * swing, dim=1)
+    def _reward_feet_lateral_align(self):
+        contact  = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
+        swing    = ~contact                                  # [N, 2] True=空中
+        feet_vy  = self.feet_vel[:, :, 1]                    # [N, 2] 两脚横向速度
+        cmd_vy   = self.commands[:, 1].unsqueeze(1)          # [N, 1] 横向指令
+        return torch.sum(feet_vy * cmd_vy * swing, dim=1)
 
     # ======================================================================
     # ③ turn_arc —— 转弯步态奖励（默认关闭）
