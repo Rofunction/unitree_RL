@@ -108,8 +108,8 @@ class G1Robot(LeggedRobot):
     
     def _reward_feet_swing_height(self):
         contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
-        # Penalize feet being too low during swing phase，desired height: 0.08m
-        pos_error = torch.square(self.feet_pos[:, :, 2] - 0.08) * ~contact
+        # Penalize feet being too low during swing phase，desired height: 0.10m
+        pos_error = torch.square(self.feet_pos[:, :, 2] - 0.10) * ~contact
         return torch.sum(pos_error, dim=(1))
     
     def _reward_alive(self):

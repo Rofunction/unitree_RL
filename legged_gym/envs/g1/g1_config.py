@@ -5,13 +5,13 @@ class G1RoughCfg( LeggedRobotCfg ):
         pos = [0.0, 0.0, 0.8] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
            'left_hip_yaw_joint' : 0. ,   
-           'left_hip_roll_joint' : 0,               
+           'left_hip_roll_joint' : 0.06,   # 外展加宽站位，增大侧移过脚余量
            'left_hip_pitch_joint' : -0.1,         
            'left_knee_joint' : 0.3,       
            'left_ankle_pitch_joint' : -0.2,     
            'left_ankle_roll_joint' : 0,     
            'right_hip_yaw_joint' : 0., 
-           'right_hip_roll_joint' : 0, 
+           'right_hip_roll_joint' : -0.06,  # 同上，右腿外展为负角
            'right_hip_pitch_joint' : -0.1,                                       
            'right_knee_joint' : 0.3,                                             
            'right_ankle_pitch_joint': -0.2,                              
