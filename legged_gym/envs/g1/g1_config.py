@@ -44,6 +44,11 @@ class G1RoughCfg( LeggedRobotCfg ):
         num_actions = 12
 
 
+    class commands( LeggedRobotCfg.commands ):
+        # 侧向指令范围 ±1.0→±0.5：先训稳干净侧移步态，之后再放宽
+        class ranges( LeggedRobotCfg.commands.ranges ):
+            lin_vel_y = [-0.5, 0.5]
+
     class domain_rand(LeggedRobotCfg.domain_rand):
         randomize_friction = True
         friction_range = [0.1, 1.25]
@@ -100,19 +105,18 @@ class G1RoughCfg( LeggedRobotCfg ):
             base_height = -10.0
             dof_acc = -2.5e-7
             dof_vel = -1e-3
-            feet_air_time = 0.5    # ① 启用：鼓励正常抬腿（原 0.0）。注意 0.8s 步频下摆动腿空中时间偏短，此项可能偏负，可按需回调到 0.2
-            collision = -1.0       # ① 启用：惩罚 hip/knee 自接触，抑制两腿相撞（原 0.0）
+            feet_air_time = 0.0
+            collision = -1.0
             action_rate = -0.01
             dof_pos_limits = -5.0
             alive = 0.15
-            hip_pos = -1.0
+            hip_pos = -4.0              # 加大：内八=hip_yaw内旋，必须让偏转变贵
             contact_no_vel = -0.2
             feet_swing_height = -20.0
             contact = 0.18
             # feet_contact_forces = -1e-3 # penalized 脚步接触力，避免跺脚太重
-            # ----- ②/③ 横向 & 转弯步态奖励：② 已启用（需与 g1_env.py 里的 _reward_feet_lateral_align
-            #       同时启用，缺一报找不到奖励函数）-----
             feet_lateral_align = 0.5   # ② 横向步态：摆动腿朝指令方向移动，抑制错腿先抬/交叉
+            feet_distance = -2.0       # ④ 单脚支撑时双脚间距<0.15m 才罚，防刮蹭/内八
             # turn_arc = 0.2             # ③ 转弯弧线：外脚多走、内脚当轴
 
 class G1RoughCfgPPO( LeggedRobotCfgPPO ):

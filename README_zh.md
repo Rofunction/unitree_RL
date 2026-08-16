@@ -41,7 +41,7 @@
 运行以下命令进行训练：
 
 ```bash
-python legged_gym/scripts/train.py --task=xxx
+python legged_gym/scripts/train.py --task=xxx --load_run=/path --checkpoint=len
 ```
 
 #### ⚙️  参数说明
@@ -67,7 +67,7 @@ python legged_gym/scripts/train.py --task=xxx
 如果想要在 Gym 中查看训练效果，可以运行以下命令：
 
 ```bash
-python legged_gym/scripts/play.py --task=xxx
+python legged_gym/scripts/play.py --task=xxx --load_run=/path --checkpoint=len
 ```
 
 **说明**：

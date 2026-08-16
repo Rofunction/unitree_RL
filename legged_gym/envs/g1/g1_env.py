@@ -57,7 +57,7 @@ class G1Robot(LeggedRobot):
     def _post_physics_step_callback(self):
         self.update_feet_state()
 
-        period = 0.8
+        period = 0.65  # 步态周期 0.8→0.65s：提高步频，降低每步横移量，抑制垫步
         offset = 0.5
         self.phase = (self.episode_length_buf * self.dt) % period / period
         self.phase_left = self.phase
@@ -124,7 +124,18 @@ class G1Robot(LeggedRobot):
         return torch.sum(penalize, dim=(1,2))
     
     def _reward_hip_pos(self):
-        return torch.sum(torch.square(self.dof_pos[:,[1,2,7,8]]), dim=1)
+        # 只惩罚 hip_yaw，防止两腿交叉；不惩罚 hip_roll（侧向迈步主关节）
+        return torch.sum(torch.square(self.dof_pos[:,[0,6]]), dim=1)
+
+    def _reward_feet_distance(self):
+        # 只在单脚支撑时罚横向间距<0.15m（摆动脚经过支撑脚），防刮蹭且不干扰正常步态
+        contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
+        single_support = (contact[:, 0] ^ contact[:, 1]).float()
+        foot_pos = (self.feet_pos - self.root_states[:, 0:3].unsqueeze(1)).reshape(self.num_envs * 2, 3)
+        quat = self.base_quat.unsqueeze(1).repeat(1, 2, 1).reshape(self.num_envs * 2, 4)
+        foot_y = quat_rotate_inverse(quat, foot_pos)[:, 1].reshape(self.num_envs, 2)
+        dist = torch.abs(foot_y[:, 0] - foot_y[:, 1])
+        return torch.clamp(0.15 - dist, min=0.0) * single_support
 
     # ======================================================================
     # ② feet_lateral_align —— 横向步态奖励（已启用）
