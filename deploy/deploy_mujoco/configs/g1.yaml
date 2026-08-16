@@ -41,4 +41,4 @@ gamepad:
   deadzone: 0.15
   # max physical command magnitudes; matches training command ranges
   # (lin_vel_x/y [-1,1] m/s, ang_vel_yaw [-1,1] rad/s) and the real-robot deploy.
-  max_cmd: [1.0, 0.8, 1.57]   # [vx m/s, vy m/s, yaw rad/s]
+  max_cmd: [1.0, 0.5, 1.57]   # [vx m/s, vy m/s, yaw rad/s]
