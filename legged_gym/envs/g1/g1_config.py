@@ -5,13 +5,13 @@ class G1RoughCfg( LeggedRobotCfg ):
         pos = [0.0, 0.0, 0.8] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
            'left_hip_yaw_joint' : 0. ,   
-           'left_hip_roll_joint' : 0.06,   # 外展加宽站位，增大侧移过脚余量
+           'left_hip_roll_joint' : 0,   # 撤回周末的 0.06 外展先验：内八是 yaw 现象，roll 默认角治不了，且只是软先验
            'left_hip_pitch_joint' : -0.1,         
            'left_knee_joint' : 0.3,       
            'left_ankle_pitch_joint' : -0.2,     
            'left_ankle_roll_joint' : 0,     
            'right_hip_yaw_joint' : 0., 
-           'right_hip_roll_joint' : -0.06,  # 同上，右腿外展为负角
+           'right_hip_roll_joint' : 0,
            'right_hip_pitch_joint' : -0.1,                                       
            'right_knee_joint' : 0.3,                                             
            'right_ankle_pitch_joint': -0.2,                              
@@ -110,13 +110,15 @@ class G1RoughCfg( LeggedRobotCfg ):
             action_rate = -0.01
             dof_pos_limits = -5.0
             alive = 0.15
-            hip_pos = -4.0              # 加大：内八=hip_yaw内旋，必须让偏转变贵
+            hip_pos = -4.0              # 只罚 hip_yaw([2,8]，见 g1_env)：内八=hip_yaw内旋。feet_distance 已删，压力源消失；若转弯变差可降回 -2.0
             contact_no_vel = -0.2
             feet_swing_height = -20.0
             contact = 0.18
             # feet_contact_forces = -1e-3 # penalized 脚步接触力，避免跺脚太重
             feet_lateral_align = 0.5   # ② 横向步态：摆动腿朝指令方向移动，抑制错腿先抬/交叉
-            feet_distance = -2.0       # ④ 单脚支撑时双脚间距<0.15m 才罚，防刮蹭/内八
+            feet_collision = -1.0      # ④ 摆动相接触罚：摆动窗口内脚上有接触力=刮蹭另一条腿/没抬起（补脚-脚不设防的洞）
+            feet_clearance = -8.0      # ⑤ 交叉间距陡峭尖峰(v3)：<0.12 才点火、平方变陡。dist=0.06 处 -2.0/步(旧线性仅-0.24)，
+                                       #    ≥0.12 零拖累。几何上纯横向 0.18 不可达(站姿0.218−扫程0.18)，目标改为保安全余量
             # turn_arc = 0.2             # ③ 转弯弧线：外脚多走、内脚当轴
 
 class G1RoughCfgPPO( LeggedRobotCfgPPO ):

@@ -124,24 +124,10 @@ class G1Robot(LeggedRobot):
         return torch.sum(penalize, dim=(1,2))
     
     def _reward_hip_pos(self):
-        # 只惩罚 hip_yaw，防止两腿交叉；不惩罚 hip_roll（侧向迈步主关节）
-        return torch.sum(torch.square(self.dof_pos[:,[0,6]]), dim=1)
+        # 只罚 hip_yaw([2,8]，URDF 顺序 pitch,roll,yaw)：防内八；[0,6] 是 pitch，罚了会压制抬腿。
+        return torch.sum(torch.square(self.dof_pos[:,[2,8]]), dim=1)
 
-    def _reward_feet_distance(self):
-        # 只在单脚支撑时罚横向间距<0.15m（摆动脚经过支撑脚），防刮蹭且不干扰正常步态
-        contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
-        single_support = (contact[:, 0] ^ contact[:, 1]).float()
-        foot_pos = (self.feet_pos - self.root_states[:, 0:3].unsqueeze(1)).reshape(self.num_envs * 2, 3)
-        quat = self.base_quat.unsqueeze(1).repeat(1, 2, 1).reshape(self.num_envs * 2, 4)
-        foot_y = quat_rotate_inverse(quat, foot_pos)[:, 1].reshape(self.num_envs, 2)
-        dist = torch.abs(foot_y[:, 0] - foot_y[:, 1])
-        return torch.clamp(0.15 - dist, min=0.0) * single_support
-
-    # ======================================================================
-    # ② feet_lateral_align —— 横向步态奖励（已启用）
-    #    目的：摆动腿朝指令侧(vy)移动，抑制“错腿先抬 / 交叉迈步”。
-    #    配套：g1_config.py rewards.scales 里 feet_lateral_align = 0.5
-    # ------------------------------------------------------------------
+    # ② 摆动腿朝指令侧(vy)移动，抑制错腿先抬/交叉迈步。
     def _reward_feet_lateral_align(self):
         contact  = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
         swing    = ~contact                                  # [N, 2] True=空中
@@ -149,13 +135,26 @@ class G1Robot(LeggedRobot):
         cmd_vy   = self.commands[:, 1].unsqueeze(1)          # [N, 1] 横向指令
         return torch.sum(feet_vy * cmd_vy * swing, dim=1)
 
-    # ======================================================================
-    # ③ turn_arc —— 转弯步态奖励（默认关闭）
-    #    启用方式：① 取消下面 _reward_turn_arc 的注释；
-    #              ② 在 g1_config.py 的 rewards.scales 里取消注释
-    #                 turn_arc = 0.2
-    #    目的：转弯时外脚多走、内脚当轴（步幅随 yaw 成弧线）。
-    # ------------------------------------------------------------------
+    # ④ 摆动窗口内脚上出现接触力 = 刮蹭另一条腿/没抬起（脚-脚接触原本零成本）。
+    def _reward_feet_collision(self):
+        contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
+        swing_phase = self.leg_phase >= 0.55          # 相位规定的摆动窗口
+        return torch.sum(contact.float() * swing_phase, dim=1)
+
+    # ⑤ 摆动期两脚水平 2D 间距，<0.12 平方尖峰（物理碰撞临界≈0.07）；
+    #    含 x 允许剪刀式错开绕行，门控摆动脚。阈值几何依据见 config 注释。
+    def _reward_feet_clearance(self):
+        contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
+        swing = ~contact                               # [N, 2] 摆动脚在场才算
+        foot_pos = (self.feet_pos - self.root_states[:, 0:3].unsqueeze(1))
+        quat = self.base_quat.unsqueeze(1).repeat(1, 2, 1)
+        foot_rel = quat_rotate_inverse(quat.reshape(-1, 4),
+                                       foot_pos.reshape(-1, 3)).reshape(self.num_envs, 2, 3)
+        dist = torch.norm(foot_rel[:, 0, :2] - foot_rel[:, 1, :2], dim=-1)  # 水平面距离
+        too_close = torch.square(torch.clamp(0.12 - dist, min=0.0) / 0.12)
+        return torch.sum(too_close.unsqueeze(1) * swing, dim=1)
+
+    # ③ turn_arc（默认关闭）：转弯时外脚多走、内脚当轴。启用：取消下述注释 + config 里 turn_arc = 0.2
     # def _reward_turn_arc(self):
     #     feet_vx = self.feet_vel[:, :, 0]                     # [N, 2] 两脚前向速度
     #     foot_y  = self.feet_pos[:, :, 1]                     # [N, 2] 两脚横向位置
