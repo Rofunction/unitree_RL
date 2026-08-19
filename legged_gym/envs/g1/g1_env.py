@@ -3,6 +3,7 @@ from legged_gym.envs.base.legged_robot import LeggedRobot
 
 from isaacgym.torch_utils import *
 from isaacgym import gymtorch, gymapi, gymutil
+import numpy as np
 import torch
 
 class G1Robot(LeggedRobot):
@@ -106,10 +107,13 @@ class G1Robot(LeggedRobot):
             res += ~(contact ^ is_stance)
         return res
     
+    # 摆动脚高 v5：目标=0.13·sin(πs)，s=摆动窗内进度(0.55→1.0)。前段逼快抬、后段压落，
+    # 消除恒定目标导致的顶点悬停(实测平台0.12s)。0.13=支撑高0.035+离地间隙0.095
     def _reward_feet_swing_height(self):
         contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
-        # Penalize feet being too low during swing phase，desired height: 0.10m
-        pos_error = torch.square(self.feet_pos[:, :, 2] - 0.10) * ~contact
+        s = torch.clamp((self.leg_phase - 0.55) / 0.45, min=0.0, max=1.0)
+        z_ref = 0.13 * torch.sin(np.pi * s)
+        pos_error = torch.square(self.feet_pos[:, :, 2] - z_ref) * ~contact
         return torch.sum(pos_error, dim=(1))
     
     def _reward_alive(self):

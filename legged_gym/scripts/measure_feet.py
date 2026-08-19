@@ -49,6 +49,7 @@ def measure(args):
     stance_y_all = []                            # 支撑脚横向偏置(相对躯干中线)
     hip_roll_all = []
     vy_track = []
+    z_rec, ph_rec, ct_rec = [], [], []           # 摆动剖面：脚高/相位/接触
 
     for step in range(total):
         actions = policy(obs.detach())
@@ -69,6 +70,9 @@ def measure(args):
         stance_y_all.append(stance_y[contact].cpu())
         hip_roll_all.append(env.dof_pos[:, [1, 7]].abs().cpu())
         vy_track.append(env.base_lin_vel[:, 1].detach().cpu())
+        z_rec.append(env.feet_pos[:, :, 2].cpu())
+        ph_rec.append(env.leg_phase.cpu().clone())
+        ct_rec.append(contact.cpu())
 
         if step % 500 == 0:
             print(f"step {step}/{total}", flush=True)
@@ -92,6 +96,42 @@ def measure(args):
     print(f"支撑脚横向偏置: 均值={stance_y.mean():.3f} → 双脚站姿宽度≈"
           f"{2*stance_y.mean():.3f} m")
     print(f"hip_roll |角度|: 均值={roll.mean():.3f} rad ({np.degrees(roll.mean()):.1f}°)")
+
+    Z = torch.stack(z_rec).numpy()
+    P = torch.stack(ph_rec).numpy()
+    C = torch.stack(ct_rec).numpy()
+    rises, peaks, peak_fr, falls, lags, durs, plats = [], [], [], [], [], [], []
+    T, N, _ = Z.shape
+    for j in range(N):
+        for f in range(2):
+            air = ~C[:, j, f]
+            k = 0
+            while k < T:
+                if air[k] and k >= warmup:
+                    a = k
+                    while k < T and air[k]:
+                        k += 1
+                    L = k - a
+                    if L >= 8:                      # 只统计完整摆动事件(≥0.16s)
+                        z = Z[a:k, j, f]
+                        kp = int(z.argmax())
+                        peaks.append(z[kp]); peak_fr.append(kp / L)
+                        plats.append(int((z >= z[kp] - 0.01).sum()) * env.dt)
+                        falls.append((L - 1 - kp) * env.dt); durs.append(L * env.dt)
+                        above = np.nonzero(z >= 0.05)[0]
+                        rises.append(above[0] * env.dt if len(above) else np.nan)
+                        lags.append((P[a, j, f] - 0.55 + 0.5) % 1 - 0.5)
+                else:
+                    k += 1
+    med = lambda x: np.nanmedian(x) if len(x) else float('nan')
+    print(f"支撑期脚z: 中位={np.median(Z[C]):.3f}m  空中脚z: 25%={np.percentile(Z[~C],25):.3f} "
+          f"中位={np.median(Z[~C]):.3f}  → 实际抬脚量≈{np.median(Z[~C])-np.median(Z[C]):.3f}m")
+    print(f"摆动事件数={len(peaks)}  摆动时长中位={med(durs):.3f}s (相位窗=0.293s)")
+    print(f"离地滞后(相对相位0.55): 中位={med(lags):+.3f} 相位 ≈ {med(lags)*0.65*1000:.0f}ms")
+    print(f"升至0.05m耗时: 中位={med(rises):.3f}s  25%分位={np.nanpercentile(rises,25):.3f}s")
+    print(f"峰值高度: 中位={med(peaks):.3f}m  5%分位={np.percentile(peaks,5):.3f}m")
+    print(f"峰值时刻占摆动比: 中位={med(peak_fr):.2f}  下降耗时中位={med(falls):.3f}s")
+    print(f"顶点平台时长(峰值-1cm内): 中位={med(plats):.3f}s  75%分位={np.percentile(plats,75):.3f}s")
     print("===========================================")
     if q(d2, .01) > 0.15 and q(dy, .01) < 0.10:
         print("→ 诊断: 2D 达标但横向很窄 = 策略用前后错开绕过了间距要求")
@@ -102,8 +142,12 @@ def measure(args):
 
 
 if __name__ == '__main__':
+    vel = -0.5                                    # 先剥离自定义参数再交给 get_args
+    for i, a in enumerate(sys.argv):
+        if a == '--vel' and i + 1 < len(sys.argv):
+            vel = float(sys.argv[i + 1]); del sys.argv[i:i + 2]; break
+        if a.startswith('--vel='):
+            vel = float(a.split('=')[1]); del sys.argv[i]; break
     args = get_args()
-    # 给 get_args 补一个自定义参数（不破坏原有解析）
-    if '--vel' in sys.argv:
-        args.vel = float(sys.argv[sys.argv.index('--vel') + 1])
+    args.vel = vel
     measure(args)
