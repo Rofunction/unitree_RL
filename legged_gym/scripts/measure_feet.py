@@ -126,8 +126,8 @@ def measure(args):
     med = lambda x: np.nanmedian(x) if len(x) else float('nan')
     print(f"支撑期脚z: 中位={np.median(Z[C]):.3f}m  空中脚z: 25%={np.percentile(Z[~C],25):.3f} "
           f"中位={np.median(Z[~C]):.3f}  → 实际抬脚量≈{np.median(Z[~C])-np.median(Z[C]):.3f}m")
-    print(f"摆动事件数={len(peaks)}  摆动时长中位={med(durs):.3f}s (相位窗=0.293s)")
-    print(f"离地滞后(相对相位0.55): 中位={med(lags):+.3f} 相位 ≈ {med(lags)*0.65*1000:.0f}ms")
+    print(f"摆动事件数={len(peaks)}  摆动时长中位={med(durs):.3f}s (相位窗=0.270s)")
+    print(f"离地滞后(相对相位0.55): 中位={med(lags):+.3f} 相位 ≈ {med(lags)*0.60*1000:.0f}ms")
     print(f"升至0.05m耗时: 中位={med(rises):.3f}s  25%分位={np.nanpercentile(rises,25):.3f}s")
     print(f"峰值高度: 中位={med(peaks):.3f}m  5%分位={np.percentile(peaks,5):.3f}m")
     print(f"峰值时刻占摆动比: 中位={med(peak_fr):.2f}  下降耗时中位={med(falls):.3f}s")
