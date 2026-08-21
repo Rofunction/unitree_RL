@@ -18,6 +18,7 @@ import torch
 
 def measure(args):
     vel = getattr(args, 'vel', -0.5)
+    stance = getattr(args, 'stance', 0.55)   # 支撑相位窗终点：g1=0.55, g1_23dof=0.60
 
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     env_cfg.env.num_envs = 50
@@ -120,14 +121,14 @@ def measure(args):
                         falls.append((L - 1 - kp) * env.dt); durs.append(L * env.dt)
                         above = np.nonzero(z >= 0.05)[0]
                         rises.append(above[0] * env.dt if len(above) else np.nan)
-                        lags.append((P[a, j, f] - 0.55 + 0.5) % 1 - 0.5)
+                        lags.append((P[a, j, f] - stance + 0.5) % 1 - 0.5)
                 else:
                     k += 1
     med = lambda x: np.nanmedian(x) if len(x) else float('nan')
     print(f"支撑期脚z: 中位={np.median(Z[C]):.3f}m  空中脚z: 25%={np.percentile(Z[~C],25):.3f} "
           f"中位={np.median(Z[~C]):.3f}  → 实际抬脚量≈{np.median(Z[~C])-np.median(Z[C]):.3f}m")
-    print(f"摆动事件数={len(peaks)}  摆动时长中位={med(durs):.3f}s (相位窗=0.270s)")
-    print(f"离地滞后(相对相位0.55): 中位={med(lags):+.3f} 相位 ≈ {med(lags)*0.60*1000:.0f}ms")
+    print(f"摆动事件数={len(peaks)}  摆动时长中位={med(durs):.3f}s (相位窗={(1-stance)*0.60:.3f}s)")
+    print(f"离地滞后(相对相位{stance}): 中位={med(lags):+.3f} 相位 ≈ {med(lags)*0.60*1000:.0f}ms")
     print(f"升至0.05m耗时: 中位={med(rises):.3f}s  25%分位={np.nanpercentile(rises,25):.3f}s")
     print(f"峰值高度: 中位={med(peaks):.3f}m  5%分位={np.percentile(peaks,5):.3f}m")
     print(f"峰值时刻占摆动比: 中位={med(peak_fr):.2f}  下降耗时中位={med(falls):.3f}s")
@@ -142,12 +143,18 @@ def measure(args):
 
 
 if __name__ == '__main__':
-    vel = -0.5                                    # 先剥离自定义参数再交给 get_args
+    vel, stance = -0.5, 0.55                      # 先剥离自定义参数再交给 get_args
     for i, a in enumerate(sys.argv):
         if a == '--vel' and i + 1 < len(sys.argv):
             vel = float(sys.argv[i + 1]); del sys.argv[i:i + 2]; break
         if a.startswith('--vel='):
             vel = float(a.split('=')[1]); del sys.argv[i]; break
+    for i, a in enumerate(sys.argv):
+        if a == '--stance' and i + 1 < len(sys.argv):
+            stance = float(sys.argv[i + 1]); del sys.argv[i:i + 2]; break
+        if a.startswith('--stance='):
+            stance = float(a.split('=')[1]); del sys.argv[i]; break
     args = get_args()
     args.vel = vel
+    args.stance = stance
     measure(args)

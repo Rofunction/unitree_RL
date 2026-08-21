@@ -7,7 +7,8 @@ import numpy as np
 import torch
 
 class G1Robot(LeggedRobot):
-    
+    stance_frac = 0.55  # 支撑相位窗终点(=摆动起点)。双支撑占比 = 2*stance_frac-1 → 0.55=10%周期
+
     def _get_noise_scale_vec(self, cfg):
         """ Sets a vector used to scale the noise added to the observations.
             [NOTE]: Must be adapted when changing the observations structure
@@ -102,16 +103,16 @@ class G1Robot(LeggedRobot):
         # Reward for correct contact timing
         res = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         for i in range(self.feet_num):
-            is_stance = self.leg_phase[:, i] < 0.55
+            is_stance = self.leg_phase[:, i] < self.stance_frac
             contact = self.contact_forces[:, self.feet_indices[i], 2] > 1
             res += ~(contact ^ is_stance)
         return res
     
-    # 摆动脚高 v5：目标=0.13·sin(πs)，s=摆动窗内进度(0.55→1.0)。前段逼快抬、后段压落，
+    # 摆动脚高 v5：目标=0.13·sin(πs)，s=摆动窗内进度(stance_frac→1.0)。前段逼快抬、后段压落，
     # 消除恒定目标导致的顶点悬停(实测平台0.12s)。0.13=支撑高0.035+离地间隙0.095
     def _reward_feet_swing_height(self):
         contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
-        s = torch.clamp((self.leg_phase - 0.55) / 0.45, min=0.0, max=1.0)
+        s = torch.clamp((self.leg_phase - self.stance_frac) / (1.0 - self.stance_frac), min=0.0, max=1.0)
         z_ref = 0.13 * torch.sin(np.pi * s)
         pos_error = torch.square(self.feet_pos[:, :, 2] - z_ref) * ~contact
         return torch.sum(pos_error, dim=(1))
@@ -142,7 +143,7 @@ class G1Robot(LeggedRobot):
     # ④ 摆动窗口内脚上出现接触力 = 刮蹭另一条腿/没抬起（脚-脚接触原本零成本）。
     def _reward_feet_collision(self):
         contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
-        swing_phase = self.leg_phase >= 0.55          # 相位规定的摆动窗口
+        swing_phase = self.leg_phase >= self.stance_frac          # 相位规定的摆动窗口
         return torch.sum(contact.float() * swing_phase, dim=1)
 
     # ⑤ 摆动期两脚水平 2D 间距，<0.12 平方尖峰（物理碰撞临界≈0.07）；

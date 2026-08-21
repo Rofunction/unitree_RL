@@ -23,9 +23,9 @@ def play(args):
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
 
-    # env_cfg.commands.ranges.lin_vel_x = [0.0, 0.0]
-    # env_cfg.commands.ranges.lin_vel_y = [-0.5, -0.5]
-    # env_cfg.commands.ranges.ang_vel_yaw = [0.0, 0.0]
+    env_cfg.commands.ranges.lin_vel_x = [0.0, 0.0]
+    env_cfg.commands.ranges.lin_vel_y = [0.0, 0.0]
+    env_cfg.commands.ranges.ang_vel_yaw = [0.0, 0.0]
 
     env_cfg.env.test = True
 
@@ -44,8 +44,10 @@ def play(args):
         print('Exported policy as jit script to: ', path)
 
     for i in range(10*int(env.max_episode_length)):
-        actions = policy(obs.detach())
+        # actions = policy(obs.detach())
+        actions = ppo_runner.alg.actor_critic.act(obs.detach())   # σ 采样动作（训练同款）
         obs, _, rews, dones, infos = env.step(actions.detach())
+        ppo_runner.alg.actor_critic.memory_a.reset(dones)         # 回合终止清 LSTM 记忆（只清 actor，critic 在 play 里未用）
 
 if __name__ == '__main__':
     EXPORT_POLICY = True
