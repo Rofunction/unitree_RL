@@ -33,6 +33,10 @@ class G1Robot23dof(G1Robot):
         self.arm_roll_idx = [idx['left_shoulder_roll_joint'],
                              idx['right_shoulder_roll_joint']]
         self.arm_roll_default = self.default_dof_pos[:, self.arm_roll_idx]
+        self.arm_yaw_idx = [idx['left_shoulder_yaw_joint'],
+                            idx['right_shoulder_yaw_joint']]
+        self.wrist_idx = [idx['left_wrist_roll_joint'],
+                          idx['right_wrist_roll_joint']]
         self.waist_idx = idx['waist_yaw_joint']
 
     def _arm_swing_cmd(self):
@@ -59,6 +63,15 @@ class G1Robot23dof(G1Robot):
         sgn = torch.tensor([1.0, -1.0], device=self.device)
         ref = self.arm_roll_default + self.ARM_SPREAD * ayn * sgn
         return torch.sum(torch.square(self.dof_pos[:, self.arm_roll_idx] - ref), dim=1)
+
+    def _reward_shoulder_yaw_pos(self):
+        # 肩yaw死区±8°(0.14rad)外罚平方：防小臂外翻，死区内留给平衡微调
+        yaw = self.dof_pos[:, self.arm_yaw_idx]
+        return torch.sum(torch.square(torch.clamp(yaw.abs() - 0.14, min=0.0)), dim=1)
+
+    def _reward_wrist_pos(self):
+        # 腕roll无任务引用，罚漂移防常驻限位
+        return torch.sum(torch.square(self.dof_pos[:, self.wrist_idx]), dim=1)
 
     def _reward_waist_swing(self):
         # 腰反旋(与左臂同相：臂/肩在后=腰正转) + 转弯肩预旋(ωz 同号)

@@ -1,7 +1,6 @@
 from legged_gym.envs.g1.g1_config import G1RoughCfg, G1RoughCfgPPO
 
 # 23dof = 12 腿 + 1 腰 + 2×5 臂。URDF 前 12 关节与 12dof 完全同序，
-# g1_env 的腿部硬编码索引与全部步态奖励原样继承；本文件只做增量覆盖。
 class G1Rough23dofCfg( G1RoughCfg ):
 
     class init_state( G1RoughCfg.init_state ):
@@ -59,6 +58,10 @@ class G1Rough23dofCfg( G1RoughCfg ):
     class domain_rand( G1RoughCfg.domain_rand ):
         added_mass_range = [-2., 4.]   # 23dof 比 12dof 重 2kg，且全在上身
 
+    class commands( G1RoughCfg.commands ):
+        class ranges( G1RoughCfg.commands.ranges ):
+            ang_vel_yaw = [-0.5, 0.5]  # ±1 太宽学不动；先收窄把 yaw 跟踪练出来
+
     class rewards( G1RoughCfg.rewards ):
         # 实测账本(2026-08-21, model_10000)：当前姿态每步 罚 −0.44/正 +0.02 → clip 全归零、梯度死。
         # 本版重配平目标：当前净值抬到自杀线(−0.05=终局−5×(1−γ))之上，靠抖振自愈转正，再靠 tracking 拉步态。
@@ -67,16 +70,19 @@ class G1Rough23dofCfg( G1RoughCfg ):
             alive = 2.0    # 7.0 脚手架已完成使命(2722iter 站稳 h≈0.78/ep_len 888/脚承重98%)；
                            # 降回 2.0 让 tracking 成主收入：走/站增益 9%→150%，每步净落 [−0.05,+0.03]
             tracking_lin_vel = 2.0   # 站 0.005 vs 好步态 0.034/步：走路比站多赚 60%
+            tracking_ang_vel = 1.5   # 0.5 与 lin 比例 4:1 → yaw 被弃(23%分)；拉大逼策略学转向
             dof_vel = -2e-4  # 原−1e-3 每步−0.187：68% 是腕/踝roll/肩yaw 抖振的平方和
             dof_acc = -1e-7
             base_height = -5.0
             feet_swing_height = -10.0
             collision = -0.5
             dof_pos_limits = -2.5
-            arm_swing = -2.0   # 摆臂跟踪(见 g1_23dof_env)：vx=0 时参考退化为贴默认角
-            arm_elbow = -1.0   # 肘联动：臂后摆时肘伸直些
-            arm_spread = -1.0  # 侧移时臂横向微张保平衡
-            waist_swing = -1.0 # 腰反旋 + 转弯肩预旋
+            arm_swing = -10.0  # 摆臂跟踪(见 g1_23dof_env)：vx=0 时参考退化为贴默认角；-2 实测罚金太小策略交罚不摆
+            arm_elbow = -5.0   # 肘联动：臂后摆时肘伸直些
+            arm_spread = -5.0  # 侧移时臂横向微张保平衡
+            waist_swing = -5.0 # 腰反旋 + 转弯肩预旋
+            shoulder_yaw_pos = -5.0  # 肩yaw死区±8°外罚平方：防小臂外翻(model_8550 外翻常驻)
+            wrist_pos = -1.0   # 腕roll无任务引用，罚漂移防常驻限位
             feet_collision = -0.5
             lin_vel_z = -1.0   # 12dof 为 -2.0；放软让 CoM 每周期两次自然起伏(人类 2-3cm)
             termination = -250.0  # 生效=scale×dt=−5/次摔倒：防"速死止损"套利
