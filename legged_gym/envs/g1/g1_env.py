@@ -32,7 +32,7 @@ class G1Robot(LeggedRobot):
         height_idx = 9 + 3 * self.num_actions
         phase_idx = height_idx
         if getattr(self.cfg.env, 'observe_base_height', False):
-            noise_vec[height_idx] = 0. # base-height error is computed from simulation state
+            noise_vec[height_idx] = noise_scales.height_measurements * noise_level # ±0.1 obs 单位 ≈ ±2cm，对齐真机腿运动学估计误差
             phase_idx += 1
         noise_vec[phase_idx:phase_idx + 2] = 0. # sin/cos phase
         
