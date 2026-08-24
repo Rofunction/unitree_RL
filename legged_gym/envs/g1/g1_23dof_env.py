@@ -4,10 +4,6 @@ from legged_gym.envs.g1.g1_env import G1Robot
 import numpy as np
 import torch
 
-# 23dof：腿 12 + 腰 1 + 双臂 10。臂/腰索引按名查表不写死；
-# 步态相位/接触/feet 系列奖励全部继承 12dof 版本。
-# 符号均经 URDF FK 验证：肩 pitch 负=前摆，elbow 正=伸直(1.57=自然下垂)，
-# 左 shoulder_roll 正=外展，waist_yaw 正=左肩向后。
 class G1Robot23dof(G1Robot):
     stance_frac = 0.60     # 双支撑 20% 周期（人类水平；12dof 是 0.55）
     ARM_SWING_AMP = 0.45   # |vx|=1 时肩摆幅[rad]≈26°(人类快走上臂 ±25°)

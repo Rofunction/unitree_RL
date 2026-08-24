@@ -4,7 +4,7 @@ from legged_gym.envs.g1.g1_config import G1RoughCfg, G1RoughCfgPPO
 class G1Rough23dofCfg( G1RoughCfg ):
 
     class init_state( G1RoughCfg.init_state ):
-        default_joint_angles = { # 全部 23 个必须写全：基类按 dof 名直取，缺 key 直接 KeyError
+        default_joint_angles = {
            'left_hip_yaw_joint' : 0. ,
            'left_hip_roll_joint' : 0,
            'left_hip_pitch_joint' : -0.1,
@@ -20,7 +20,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
            # 臂零位=小臂前平举(elbow 1.57 才是自然下垂)：1.2=微屈肘近似人站立
            'waist_yaw_joint' : 0.,
            'left_shoulder_pitch_joint' : 0.,
-           'left_shoulder_roll_joint' : 0.08,   # 微外展防蹭髋
+           'left_shoulder_roll_joint' : 0.08,
            'left_shoulder_yaw_joint' : 0.,
            'left_elbow_joint' : 1.2,
            'left_wrist_roll_joint' : 0.,
@@ -31,49 +31,45 @@ class G1Rough23dofCfg( G1RoughCfg ):
            'right_wrist_roll_joint' : 0.,
         }
 
-    class env( G1RoughCfg.env ):
+    class env(G1RoughCfg.env):
         num_actions = 23
-        num_observations = 80          # 9 + 3*23 + 2
+        num_observations = 80
         num_privileged_obs = 83
 
-    class asset( G1RoughCfg.asset ):
+    class asset(G1RoughCfg.asset):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_23dof.urdf'
         penalize_contacts_on = ["hip", "knee", "shoulder", "elbow"]
 
-    class control( G1RoughCfg.control ):
-        # 扭矩比例: 腿 88-120Nm / 腰 88 / 肩肘 25 / 腕 5 → Kp 按此配
+    class control(G1RoughCfg.control):
         stiffness = {**G1RoughCfg.control.stiffness,
                      'waist': 100,
                      'shoulder': 40,
                      'elbow': 40,
                      'wrist': 5,
                      }  # [N*m/rad]
-        damping = {  **G1RoughCfg.control.damping,
+        damping = {**G1RoughCfg.control.damping,
                     'waist': 2,
                     'shoulder': 2,
                     'elbow': 2,
                     'wrist': 0.5,
                     }  # [N*m*s/rad]
 
-    class domain_rand( G1RoughCfg.domain_rand ):
-        added_mass_range = [-2., 4.]   # 23dof 比 12dof 重 2kg，且全在上身
+    class domain_rand(G1RoughCfg.domain_rand):
+        added_mass_range = [-2., 4.]
 
-    class commands( G1RoughCfg.commands ):
-        class ranges( G1RoughCfg.commands.ranges ):
-            ang_vel_yaw = [-0.5, 0.5]  # ±1 太宽学不动；先收窄把 yaw 跟踪练出来
+    class commands(G1RoughCfg.commands):
+        class ranges(G1RoughCfg.commands.ranges):
+            ang_vel_yaw = [-0.5, 0.5]
 
-    class rewards( G1RoughCfg.rewards ):
-        # 实测账本(2026-08-21, model_10000)：当前姿态每步 罚 −0.44/正 +0.02 → clip 全归零、梯度死。
-        # 本版重配平目标：当前净值抬到自杀线(−0.05=终局−5×(1−γ))之上，靠抖振自愈转正，再靠 tracking 拉步态。
+    class rewards(G1RoughCfg.rewards):
         only_positive_rewards = False  # 站立净正前拆 clip 无信号；现靠 alive+罚项削减保证净 ≥ −0.022
-        class scales( G1RoughCfg.rewards.scales ):
-            alive = 2.0    # 7.0 脚手架已完成使命(2722iter 站稳 h≈0.78/ep_len 888/脚承重98%)；
-                           # 降回 2.0 让 tracking 成主收入：走/站增益 9%→150%，每步净落 [−0.05,+0.03]
-            tracking_lin_vel = 2.0   # 站 0.005 vs 好步态 0.034/步：走路比站多赚 60%
-            tracking_ang_vel = 1.5   # 0.5 与 lin 比例 4:1 → yaw 被弃(23%分)；拉大逼策略学转向
-            dof_vel = -2e-4  # 原−1e-3 每步−0.187：68% 是腕/踝roll/肩yaw 抖振的平方和
+        class scales(G1RoughCfg.rewards.scales):
+            alive = 2.0
+            tracking_lin_vel = 2.0
+            tracking_ang_vel = 1.5 
+            dof_vel = -2e-4
             dof_acc = -1e-7
-            base_height = -5.0
+            base_height = -15.0
             feet_swing_height = -10.0
             collision = -0.5
             dof_pos_limits = -2.5
@@ -85,19 +81,17 @@ class G1Rough23dofCfg( G1RoughCfg ):
             wrist_pos = -1.0   # 腕roll无任务引用，罚漂移防常驻限位
             feet_collision = -0.5
             lin_vel_z = -1.0   # 12dof 为 -2.0；放软让 CoM 每周期两次自然起伏(人类 2-3cm)
-            termination = -250.0  # 生效=scale×dt=−5/次摔倒：防"速死止损"套利
+            termination = -250.0
 
 
 class G1Rough23dofCfgPPO( G1RoughCfgPPO ):
-    class algorithm( G1RoughCfgPPO.algorithm ):
-        # 熵推力/维是定值，罚项反压摊 23 关节(12dof 只摊 12)→ 12dof 的 0.005 在此偏高：
-        # 实测 0.005 下 σ 0.42@218→0.73@435 仍升，0.002 寻平衡(~0.4)。若仍升→0.001
+    class algorithm(G1RoughCfgPPO.algorithm):
         entropy_coef = 0.002
 
-    class policy( G1RoughCfgPPO.policy ):
-        actor_hidden_dims = [64]   # 23 维动作，网络从 32 加大一档
+    class policy(G1RoughCfgPPO.policy):
+        actor_hidden_dims = [64]
         critic_hidden_dims = [64]
 
-    class runner( G1RoughCfgPPO.runner ):
+    class runner(G1RoughCfgPPO.runner):
         max_iterations = 10000
-        experiment_name = 'g1_23dof'   # 日志与 12dof 分开
+        experiment_name = 'g1_23dof'
