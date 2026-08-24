@@ -29,7 +29,12 @@ class G1Robot(LeggedRobot):
         noise_vec[9:9+self.num_actions] = noise_scales.dof_pos * noise_level * self.obs_scales.dof_pos
         noise_vec[9+self.num_actions:9+2*self.num_actions] = noise_scales.dof_vel * noise_level * self.obs_scales.dof_vel
         noise_vec[9+2*self.num_actions:9+3*self.num_actions] = 0. # previous actions
-        noise_vec[9+3*self.num_actions:9+3*self.num_actions+2] = 0. # sin/cos phase
+        height_idx = 9 + 3 * self.num_actions
+        phase_idx = height_idx
+        if getattr(self.cfg.env, 'observe_base_height', False):
+            noise_vec[height_idx] = noise_scales.height_measurements * noise_level # ±0.1 obs 单位 ≈ ±2cm，对齐真机腿运动学估计误差
+            phase_idx += 1
+        noise_vec[phase_idx:phase_idx + 2] = 0. # sin/cos phase
         
         return noise_vec
 
@@ -72,6 +77,13 @@ class G1Robot(LeggedRobot):
     def compute_observations(self):
         """ Computes observations
         """
+        height_obs = []
+        if getattr(self.cfg.env, 'observe_base_height', False):
+            # Match the reward's physical target and keep the input numerically scaled.
+            height_obs.append(
+                (self.root_states[:, 2] - self.cfg.rewards.base_height_target).unsqueeze(1)
+                * self.obs_scales.height_measurements
+            )
         sin_phase = torch.sin(2 * np.pi * self.phase ).unsqueeze(1)
         cos_phase = torch.cos(2 * np.pi * self.phase ).unsqueeze(1)
         self.obs_buf = torch.cat((  self.base_ang_vel  * self.obs_scales.ang_vel,
@@ -80,6 +92,7 @@ class G1Robot(LeggedRobot):
                                     (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos,
                                     self.dof_vel * self.obs_scales.dof_vel,
                                     self.actions,
+                                    *height_obs,
                                     sin_phase,
                                     cos_phase
                                     ),dim=-1)
@@ -90,6 +103,7 @@ class G1Robot(LeggedRobot):
                                     (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos,
                                     self.dof_vel * self.obs_scales.dof_vel,
                                     self.actions,
+                                    *height_obs,
                                     sin_phase,
                                     cos_phase
                                     ),dim=-1)
@@ -165,4 +179,3 @@ class G1Robot(LeggedRobot):
     #     foot_y  = self.feet_pos[:, :, 1]                     # [N, 2] 两脚横向位置
     #     yaw     = self.commands[:, 2].unsqueeze(1)           # [N, 1] 偏航指令
     #     return torch.sum(feet_vx * (yaw * foot_y), dim=1)
-    

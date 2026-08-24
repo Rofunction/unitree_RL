@@ -100,6 +100,15 @@ class LeggedRobot(BaseTask):
 
         self._post_physics_step_callback()
 
+        # Keep physical height diagnostics independent of reward scaling.
+        height_error = self.root_states[:, 2] - self.cfg.rewards.base_height_target
+        self.episode_base_height_sum += self.root_states[:, 2] * self.dt
+        self.episode_base_height_error_sum += torch.abs(height_error) * self.dt
+        self.episode_base_lin_vel_z_sq_sum += torch.square(self.base_lin_vel[:, 2]) * self.dt
+        self.episode_base_height_min = torch.minimum(self.episode_base_height_min, self.root_states[:, 2])
+        self.episode_base_height_max = torch.maximum(self.episode_base_height_max, self.root_states[:, 2])
+        self.episode_height_sample_count += 1
+
         # compute observations, rewards, resets, ...
         self.check_termination()
         self.compute_reward()
@@ -147,6 +156,9 @@ class LeggedRobot(BaseTask):
         self.last_actions[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
         self.feet_air_time[env_ids] = 0.
+        sample_count = self.episode_height_sample_count[env_ids]
+        has_samples = sample_count > 0
+        episode_duration = torch.clamp(sample_count * self.dt, min=self.dt)
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
         # fill extras
@@ -154,6 +166,33 @@ class LeggedRobot(BaseTask):
         for key in self.episode_sums.keys():
             self.extras["episode"]['rew_' + key] = torch.mean(self.episode_sums[key][env_ids]) / self.max_episode_length_s
             self.episode_sums[key][env_ids] = 0.
+        current_height = self.root_states[env_ids, 2]
+        height_mean = torch.where(
+            has_samples, self.episode_base_height_sum[env_ids] / episode_duration, current_height
+        )
+        height_abs_error_mean = torch.where(
+            has_samples,
+            self.episode_base_height_error_sum[env_ids] / episode_duration,
+            torch.abs(current_height - self.cfg.rewards.base_height_target),
+        )
+        height_min = torch.where(has_samples, self.episode_base_height_min[env_ids], current_height)
+        height_max = torch.where(has_samples, self.episode_base_height_max[env_ids], current_height)
+        lin_vel_z_rms = torch.where(
+            has_samples,
+            torch.sqrt(self.episode_base_lin_vel_z_sq_sum[env_ids] / episode_duration),
+            torch.abs(self.base_lin_vel[env_ids, 2]),
+        )
+        self.extras["episode"]["base_height_mean"] = torch.mean(height_mean)
+        self.extras["episode"]["base_height_abs_error_mean"] = torch.mean(height_abs_error_mean)
+        self.extras["episode"]["base_height_min"] = torch.mean(height_min)
+        self.extras["episode"]["base_height_max"] = torch.mean(height_max)
+        self.extras["episode"]["base_lin_vel_z_rms"] = torch.mean(lin_vel_z_rms)
+        self.episode_base_height_sum[env_ids] = 0.
+        self.episode_base_height_error_sum[env_ids] = 0.
+        self.episode_base_lin_vel_z_sq_sum[env_ids] = 0.
+        self.episode_base_height_min[env_ids] = torch.inf
+        self.episode_base_height_max[env_ids] = -torch.inf
+        self.episode_height_sample_count[env_ids] = 0.
         if self.cfg.commands.curriculum:
             self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
         # send timeout info to the algorithm
@@ -454,6 +493,14 @@ class LeggedRobot(BaseTask):
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
         self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])
+        # Physical diagnostics, integrated over each episode and reported in meters
+        # and m/s rather than reward-scaled units.
+        self.episode_base_height_sum = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.episode_base_height_error_sum = torch.zeros_like(self.episode_base_height_sum)
+        self.episode_base_lin_vel_z_sq_sum = torch.zeros_like(self.episode_base_height_sum)
+        self.episode_base_height_min = torch.full_like(self.episode_base_height_sum, torch.inf)
+        self.episode_base_height_max = torch.full_like(self.episode_base_height_sum, -torch.inf)
+        self.episode_height_sample_count = torch.zeros_like(self.episode_base_height_sum)
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
