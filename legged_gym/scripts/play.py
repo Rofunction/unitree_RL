@@ -44,10 +44,11 @@ def play(args):
         print('Exported policy as jit script to: ', path)
 
     for i in range(10*int(env.max_episode_length)):
-        # actions = policy(obs.detach())
-        actions = ppo_runner.alg.actor_critic.act(obs.detach())   # σ 采样动作（训练同款）
+        # Deterministic inference: do not inject the training-time action noise.
+        actions = policy(obs.detach())
         obs, _, rews, dones, infos = env.step(actions.detach())
-        ppo_runner.alg.actor_critic.memory_a.reset(dones)         # 回合终止清 LSTM 记忆（只清 actor，critic 在 play 里未用）
+        if hasattr(ppo_runner.alg.actor_critic, 'memory_a'):
+            ppo_runner.alg.actor_critic.memory_a.reset(dones)
 
 if __name__ == '__main__':
     EXPORT_POLICY = True

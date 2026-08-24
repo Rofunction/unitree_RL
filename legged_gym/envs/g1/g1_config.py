@@ -29,7 +29,8 @@ class G1RoughCfg( LeggedRobotCfg ):
         #   [9 : 9+N]      (dof_pos - default_dof_pos) * scale
         #   [9+N : 9+2N]   dof_vel * scale
         #   [9+2N : 9+3N]  actions (previous step)
-        #   [9+3N : 9+3N+2] sin(phase), cos(phase)   # periodic gait prior (see _post_physics_step_callback)
+        #   [9+3N]         optional base-height error (23dof only)
+        #   [end-2 : end]  sin(phase), cos(phase)   # periodic gait prior (see _post_physics_step_callback)
         # base_lin_vel is NOT in obs_buf (hard to measure on hardware) -> only the critic
         # sees it via privileged_obs. With N=12: 9 + 36 + 2 = 47.
         num_observations = 47
@@ -39,7 +40,8 @@ class G1RoughCfg( LeggedRobotCfg ):
         # num_actions = dimension of the policy action vector = number of actuated DOFs
         # (revolute/prismatic joints in the URDF). For g1_12dof this is the 12 leg joints
         # (6 per leg: hip pitch/roll/yaw, knee, ankle pitch/roll); arms/torso are fixed.
-        # To switch to 23-dof: set num_actions=23 -> num_observations=80, num_privileged_obs=83,
+        # The 23-dof config also observes base-height error: num_observations=81,
+        # num_privileged_obs=84.
         # and update the URDF, default_joint_angles, and PD gains accordingly.
         num_actions = 12
 

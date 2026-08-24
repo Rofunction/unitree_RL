@@ -33,8 +33,11 @@ class G1Rough23dofCfg( G1RoughCfg ):
 
     class env( G1RoughCfg.env ):
         num_actions = 23
-        num_observations = 80          # 9 + 3*23 + 2
-        num_privileged_obs = 83
+        observe_base_height = True
+        # 9 + 3*23 + base-height error + sin/cos phase
+        num_observations = 81
+        # privileged observation additionally contains base linear velocity
+        num_privileged_obs = 84
 
     class asset( G1RoughCfg.asset ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_23dof.urdf'
@@ -63,6 +66,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
             ang_vel_yaw = [-0.5, 0.5]  # ±1 太宽学不动；先收窄把 yaw 跟踪练出来
 
     class rewards( G1RoughCfg.rewards ):
+        base_height_target = 0.78
         # 实测账本(2026-08-21, model_10000)：当前姿态每步 罚 −0.44/正 +0.02 → clip 全归零、梯度死。
         # 本版重配平目标：当前净值抬到自杀线(−0.05=终局−5×(1−γ))之上，靠抖振自愈转正，再靠 tracking 拉步态。
         only_positive_rewards = False  # 站立净正前拆 clip 无信号；现靠 alive+罚项削减保证净 ≥ −0.022
@@ -73,7 +77,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
             tracking_ang_vel = 1.5   # 0.5 与 lin 比例 4:1 → yaw 被弃(23%分)；拉大逼策略学转向
             dof_vel = -2e-4  # 原−1e-3 每步−0.187：68% 是腕/踝roll/肩yaw 抖振的平方和
             dof_acc = -1e-7
-            base_height = -5.0
+            base_height = -10.0
             feet_swing_height = -10.0
             collision = -0.5
             dof_pos_limits = -2.5
@@ -84,7 +88,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
             shoulder_yaw_pos = -5.0  # 肩yaw死区±8°外罚平方：防小臂外翻(model_8550 外翻常驻)
             wrist_pos = -1.0   # 腕roll无任务引用，罚漂移防常驻限位
             feet_collision = -0.5
-            lin_vel_z = -1.0   # 12dof 为 -2.0；放软让 CoM 每周期两次自然起伏(人类 2-3cm)
+            lin_vel_z = -2.0   # 抑制周期性上下速度，减少一蹲一蹲
             termination = -250.0  # 生效=scale×dt=−5/次摔倒：防"速死止损"套利
 
 
