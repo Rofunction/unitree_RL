@@ -1,5 +1,6 @@
 
 from legged_gym.envs.g1.g1_env import G1Robot
+from isaacgym.torch_utils import quat_rotate_inverse
 
 import numpy as np
 import torch
@@ -16,6 +17,7 @@ class G1Robot23dof(G1Robot):
     WAIST_SWING = 0.10     # 腰反旋幅[rad]≈6°(人类肩-髋反扭 ~10°)
     WAIST_TURN = 0.20      # 转弯肩预旋[rad]（ωz=1 时）
     LEAN_COEF = 0.09       # |vx|=1 躯干前倾[rad]≈5°(人类快走)
+    KNEE_DEADBAND = 0.55   # 支撑膝罚起征点[rad]：基线支撑膝 p5=0.43/中位0.79，目标站姿0.3~0.5
 
     def _reward_alive(self):
         # 底薪只发给"用脚活着"：跪/坐姿脚不承重(实测触地仅18%) → alive≈0，堵死跪着领薪
@@ -25,6 +27,14 @@ class G1Robot23dof(G1Robot):
     def _init_buffers(self):
         super()._init_buffers()
         idx = {n: i for i, n in enumerate(self.dof_names)}
+        self.knee_idx = [idx['left_knee_joint'], idx['right_knee_joint']]
+        # 步态姿态诊断状态：EMA(dx) 与 episode 累计量（reset_idx 上报清零）
+        self.stagger_ema = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.episode_knee_sum = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.episode_knee_w = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.episode_pitch_sum = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.episode_dx_sum = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.episode_stagger_sum = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.arm_pitch_idx = [idx['left_shoulder_pitch_joint'],
                               idx['right_shoulder_pitch_joint']]
         self.arm_pitch_default = self.default_dof_pos[:, self.arm_pitch_idx]  # [1,2]
@@ -37,7 +47,69 @@ class G1Robot23dof(G1Robot):
                             idx['right_shoulder_yaw_joint']]
         self.wrist_idx = [idx['left_wrist_roll_joint'],
                           idx['right_wrist_roll_joint']]
+        self.arm_vel_idx = self.arm_pitch_idx + self.arm_roll_idx + \
+            self.arm_yaw_idx + self.elbow_idx + self.wrist_idx  # 臂10关节
         self.waist_idx = idx['waist_yaw_joint']
+
+    def _feet_dx_torso(self):
+        # 躯干系两脚前后差：右-左，正=右脚在前（feet_indices 左,右 顺序已实测核对）
+        foot_pos = self.feet_pos - self.root_states[:, 0:3].unsqueeze(1)
+        quat = self.base_quat.unsqueeze(1).repeat(1, 2, 1)
+        foot_rel = quat_rotate_inverse(quat.reshape(-1, 4),
+                                       foot_pos.reshape(-1, 3)).reshape(self.num_envs, 2, 3)
+        return foot_rel[:, 1, 0] - foot_rel[:, 0, 0]
+
+    def _post_physics_step_callback(self):
+        super()._post_physics_step_callback()
+        # EMA(τ=一个步态周期 0.6s)：交替步态→0，常驻前后脚→定值
+        dx = self._feet_dx_torso()
+        alpha = np.exp(-self.dt / 0.6)
+        self.stagger_ema = alpha * self.stagger_ema + (1 - alpha) * dx
+        # episode 诊断累计：支撑膝(带权)、躯干倾角、带符号 dx、EMA
+        contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
+        w = (contact & (self.leg_phase < self.stance_frac)).float()
+        self.episode_knee_sum += (self.dof_pos[:, self.knee_idx] * w).sum(dim=1) * self.dt
+        self.episode_knee_w += w.sum(dim=1) * self.dt
+        pitch = torch.asin(torch.clamp(self.projected_gravity[:, 0], -1., 1.))
+        self.episode_pitch_sum += pitch * self.dt
+        self.episode_dx_sum += dx * self.dt
+        self.episode_stagger_sum += self.stagger_ema * self.dt
+
+    def reset_idx(self, env_ids):
+        if len(env_ids) == 0:
+            return
+        # 样本时长要在 super 里被清零前先取（用于 pitch/dx 的均值分母）
+        dur = torch.clamp(self.episode_height_sample_count[env_ids] * self.dt, min=self.dt)
+        super().reset_idx(env_ids)
+        self.stagger_ema[env_ids] = 0.
+        knee = self.episode_knee_sum[env_ids] / torch.clamp(self.episode_knee_w[env_ids], min=self.dt)
+        self.extras["episode"]["knee_stance_mean"] = torch.mean(knee)
+        self.extras["episode"]["torso_pitch_deg"] = torch.mean(
+            torch.rad2deg(self.episode_pitch_sum[env_ids] / dur))
+        self.extras["episode"]["feet_dx_mean"] = torch.mean(self.episode_dx_sum[env_ids] / dur)
+        self.extras["episode"]["stagger_ema_mean"] = torch.mean(
+            self.episode_stagger_sum[env_ids] / dur)
+        self.episode_knee_sum[env_ids] = 0.
+        self.episode_knee_w[env_ids] = 0.
+        self.episode_pitch_sum[env_ids] = 0.
+        self.episode_dx_sum[env_ids] = 0.
+        self.episode_stagger_sum[env_ids] = 0.
+
+    # 支撑期膝过弯罚：深蹲是支撑现象；摆动期抬腿弯膝、摆动窗内偶然触地不罚
+    def _reward_stance_knee(self):
+        contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
+        mask = contact & (self.leg_phase < self.stance_frac)
+        excess = torch.square(torch.clamp(self.dof_pos[:, self.knee_idx] - self.KNEE_DEADBAND, min=0.0))
+        return torch.sum(excess * mask, dim=1)
+
+    # 步态对称罚（阶段二启用，当前 config 无 scale）：EMA 常驻值，有运动指令才生效
+    def _reward_gait_symmetry(self):
+        motion = torch.norm(self.commands[:, :2], dim=1) > 0.1
+        return torch.square(self.stagger_ema) * motion
+
+    # 臂专用抖振税：dof_vel 全局砍到 2e-4 后腕roll/肩yaw抖振免费(实测占 dof_vel² 的 93%)，臂恢复旧税
+    def _reward_dof_vel_arms(self):
+        return torch.sum(torch.square(self.dof_vel[:, self.arm_vel_idx]), dim=1)
 
     def _arm_swing_cmd(self):
         # 肩摆指令 = ±A·v̂x·cos(2πφ)，与同侧腿反相(φ=0 左腿落地在前→左臂在后)
