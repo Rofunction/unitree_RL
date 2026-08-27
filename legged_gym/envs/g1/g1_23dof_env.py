@@ -17,7 +17,8 @@ class G1Robot23dof(G1Robot):
     WAIST_SWING = 0.10     # 腰反旋幅[rad]≈6°(人类肩-髋反扭 ~10°)
     WAIST_TURN = 0.20      # 转弯肩预旋[rad]（ωz=1 时）
     LEAN_COEF = 0.09       # |vx|=1 躯干前倾[rad]≈5°(人类快走)
-    KNEE_DEADBAND = 0.55   # 支撑膝罚起征点[rad]：基线支撑膝 p5=0.43/中位0.79，目标站姿0.3~0.5
+    KNEE_DEADBAND = 0.50   # 支撑膝罚起征点[rad]：36000后中位稳0.58两轮不过线，起征点下移逼站直(z也受益)
+    HIP_YAW_STEER = 0.35   # ωz=1 时双脚同向劈尖参考[rad]：转向需要髋yaw，实测策略仅用2.3°
 
     def _reward_alive(self):
         # 底薪只发给"用脚活着"：跪/坐姿脚不承重(实测触地仅18%) → alive≈0，堵死跪着领薪
@@ -28,6 +29,7 @@ class G1Robot23dof(G1Robot):
         super()._init_buffers()
         idx = {n: i for i, n in enumerate(self.dof_names)}
         self.knee_idx = [idx['left_knee_joint'], idx['right_knee_joint']]
+        self.hip_yaw_idx = [idx['left_hip_yaw_joint'], idx['right_hip_yaw_joint']]
         # 步态姿态诊断状态：EMA(dx) 与 episode 累计量（reset_idx 上报清零）
         self.stagger_ema = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.episode_knee_sum = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -47,9 +49,10 @@ class G1Robot23dof(G1Robot):
                             idx['right_shoulder_yaw_joint']]
         self.wrist_idx = [idx['left_wrist_roll_joint'],
                           idx['right_wrist_roll_joint']]
-        self.arm_vel_idx = self.arm_pitch_idx + self.arm_roll_idx + \
-            self.arm_yaw_idx + self.elbow_idx + self.wrist_idx  # 臂10关节
         self.waist_idx = idx['waist_yaw_joint']
+        # dof_vel 缓冲对臂roll/yaw/肘/腕8关节读冻结伪值(实测41.7rad/s vs 刚体真值1.4)
+        self.leg_waist_idx = [i for n, i in idx.items()
+                              if 'shoulder' not in n and 'elbow' not in n and 'wrist' not in n]
 
     def _feet_dx_torso(self):
         # 躯干系两脚前后差：右-左，正=右脚在前（feet_indices 左,右 顺序已实测核对）
@@ -102,14 +105,26 @@ class G1Robot23dof(G1Robot):
         excess = torch.square(torch.clamp(self.dof_pos[:, self.knee_idx] - self.KNEE_DEADBAND, min=0.0))
         return torch.sum(excess * mask, dim=1)
 
+    def _reward_hip_pos(self):
+        # 基类罚 hip_yaw 归零(防内八)顶死了转向原语：目标角改为随 ωz 指令同向劈开(两轴均+z)
+        ref = self.HIP_YAW_STEER * self.commands[:, 2].unsqueeze(1)
+        return torch.sum(torch.square(self.dof_pos[:, self.hip_yaw_idx] - ref), dim=1)
+
+    def _resample_commands(self, env_ids):
+        super()._resample_commands(env_ids)
+        # yaw 死区清除：一半重采样压到 |ωz|∈[0.2,0.5]，持续转向经验不被均匀采样稀释
+        mask = torch.rand(len(env_ids), device=self.device) < 0.5
+        sign = torch.where(torch.rand(len(env_ids), device=self.device) < 0.5, -1.0, 1.0)[mask]
+        self.commands[env_ids[mask], 2] = sign * (0.2 + 0.3 * torch.rand(int(mask.sum()), device=self.device))
+
     # 步态对称罚（阶段二启用，当前 config 无 scale）：EMA 常驻值，有运动指令才生效
     def _reward_gait_symmetry(self):
         motion = torch.norm(self.commands[:, :2], dim=1) > 0.1
         return torch.square(self.stagger_ema) * motion
 
-    # 臂专用抖振税：dof_vel 全局砍到 2e-4 后腕roll/肩yaw抖振免费(实测占 dof_vel² 的 93%)，臂恢复旧税
-    def _reward_dof_vel_arms(self):
-        return torch.sum(torch.square(self.dof_vel[:, self.arm_vel_idx]), dim=1)
+    # 全局速度税只收腿+腰：8个臂dof的dof_vel是伪值(见_init_buffers)，收了=罚不存在的抖振
+    def _reward_dof_vel(self):
+        return torch.sum(torch.square(self.dof_vel[:, self.leg_waist_idx]), dim=1)
 
     def _arm_swing_cmd(self):
         # 肩摆指令 = ±A·v̂x·cos(2πφ)，与同侧腿反相(φ=0 左腿落地在前→左臂在后)

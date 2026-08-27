@@ -55,7 +55,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
                     'waist': 2,
                     'shoulder': 2,
                     'elbow': 2,
-                    'wrist': 0.5,
+                    'wrist': 2.0,  # 0.5 时噪声激振 dof_vel²=1668 对奖励免疫；4倍阻尼掐源头
                     }  # [N*m*s/rad]
 
     class domain_rand( G1RoughCfg.domain_rand ):
@@ -71,12 +71,10 @@ class G1Rough23dofCfg( G1RoughCfg ):
         # 本版重配平目标：当前净值抬到自杀线(−0.05=终局−5×(1−γ))之上，靠抖振自愈转正，再靠 tracking 拉步态。
         only_positive_rewards = False  # 站立净正前拆 clip 无信号；现靠 alive+罚项削减保证净 ≥ −0.022
         class scales( G1RoughCfg.rewards.scales ):
-            alive = 2.0    # 7.0 脚手架已完成使命(2722iter 站稳 h≈0.78/ep_len 888/脚承重98%)；
-                           # 降回 2.0 让 tracking 成主收入：走/站增益 9%→150%，每步净落 [−0.05,+0.03]
+            alive = 1.0    # 姿态线已关+净+0.07/步稳：从2降1，收入重心从"活着"转"听指挥"(yaw 38000实测-2%被无视)
             tracking_lin_vel = 2.0   # 站 0.005 vs 好步态 0.034/步：走路比站多赚 60%
-            tracking_ang_vel = 1.5   # 0.5 与 lin 比例 4:1 → yaw 被弃(23%分)；拉大逼策略学转向
-            dof_vel = -2e-4  # 原−1e-3 每步−0.187：68% 是腕/踝roll/肩yaw 抖振的平方和
-            dof_vel_arms = -8e-4  # 臂合计恢复旧税1e-3(实测22000臂占dof_vel² 93%即税金大头)，腿不动
+            tracking_ang_vel = 3.0   # 1.5 下 yaw 仍被弃(原地/边走边转均-2%)：翻倍+alive降1把转向拉出弃学区，学出后回1.5
+            dof_vel = -1e-3   # 只收腿+腰(env重写)：臂8dof的dof_vel读冻结伪值41.7，旧"抖振大头"是缓冲区伪影
             dof_acc = -1e-7
             base_height = -30.0     # -10 时 5cm 蹲幅仅罚 0.025(收入 4.3 的 0.6%)；-30 兜底，主约束靠 stance_knee
             stance_knee = -3.0      # 支撑膝>0.55rad 罚平方：基线支撑膝中位 0.79→罚~0.06/腿，站直归零
