@@ -1,7 +1,8 @@
-#
-# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/motion.pt"
-policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_lstm_1.pt"
-xml_path: "{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/scene.xml"
+# g1_23dof：关节顺序 = URDF/MuJoCo XML 顺序 = policy obs 顺序
+#   腿12(hip_pitch,hip_roll,hip_yaw,knee,ankle_pitch,ankle_roll ×左右) + 腰1 + 臂10(肩pitch/roll/yaw,肘,腕roll ×左右)
+# 增益来源 legged_gym/envs/g1/g1_config.py + g1_23dof_config.py（model_41000 训练时值）
+policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_lstm_1_23dof.pt"
+xml_path: "{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_23dof.xml"
 
 # Total simulation time
 simulation_duration: 600.0
@@ -10,19 +11,46 @@ simulation_dt: 0.002
 # Controller update frequency (meets the requirement of simulation_dt * controll_decimation=0.02; 50Hz)
 control_decimation: 10
 
-kps: [100, 100, 100, 150, 40, 40, 100, 100, 100, 150, 40, 40]
-kds: [2, 2, 2, 4, 2, 2, 2, 2, 2, 4, 2, 2]
+kps: [100, 100, 100, 150, 40, 40,     # 左腿
+      100, 100, 100, 150, 40, 40,     # 右腿
+      100,                            # 腰
+      40, 40, 40, 40, 5,              # 左臂(肩pitch/roll/yaw,肘,腕)
+      40, 40, 40, 40, 5]              # 右臂
+# 肩yaw/腕 kd 按各关节惯量重配（β=kd·dt/I<2 且 ζ 参照 12dof 腿），与训练 config 同步
+kds: [2, 2, 2, 4, 2, 2,
+      2, 2, 2, 4, 2, 2,
+      2,
+      2, 2, 1.4, 2, 0.05,
+      2, 2, 1.4, 2, 0.05]
 
-default_angles: [-0.1,  0.0,  0.0,  0.3, -0.2, 0.0, 
-                  -0.1,  0.0,  0.0,  0.3, -0.2, 0.0]
+# URDF effort 限幅 = 训练 torque clip；不限幅时臂部显式阻尼自激会打出 -160Nm 级力矩
+effort_limits: [88, 88, 88, 139, 50, 50,
+                88, 88, 88, 139, 50, 50,
+                88,
+                25, 25, 25, 25, 25,
+                25, 25, 25, 25, 25]
+
+default_angles: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,   # 左腿
+                 -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,   # 右腿
+                 0.0,                               # 腰
+                 0.0, 0.08, 0.0, 1.2, 0.0,         # 左臂
+                 0.0, -0.08, 0.0, 1.2, 0.0]        # 右臂
 
 ang_vel_scale: 0.25
 dof_pos_scale: 1.0
 dof_vel_scale: 0.05
 action_scale: 0.25
 cmd_scale: [2.0, 2.0, 0.25]
-num_actions: 12
-num_obs: 47
+num_actions: 23
+num_obs: 81
+
+# obs[78] = (骨盆z - base_height_target) * height_obs_scale（obs_scales.height_measurements=5.0）
+base_height_target: 0.78
+height_obs_scale: 5.0
+# 步态相位周期：训练用 0.60s（g1_env._post_physics_step_callback），勿用默认 0.8
+gait_period: 0.6
+# 初始 pelvis 高度（配合 default_angles 站姿）
+init_height: 0.82
 
 cmd_init: [0.5, 0, 0]
 
@@ -39,6 +67,5 @@ gamepad:
   sign_lx: -1   # strafe left/right
   sign_rx: -1   # turn left/right
   deadzone: 0.15
-  # max physical command magnitudes; matches training command ranges
-  # (lin_vel_x/y [-1,1] m/s, ang_vel_yaw [-1,1] rad/s) and the real-robot deploy.
-  max_cmd: [1.0, 0.5, 1.57]   # [vx m/s, vy m/s, yaw rad/s]
+  # 训练指令域：vx [-1,1]、vy [-0.5,0.5]、yaw [-0.5,0.5]（23dof config）
+  max_cmd: [1.0, 0.5, 0.5]

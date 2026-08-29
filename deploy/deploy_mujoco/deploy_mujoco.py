@@ -141,6 +141,9 @@ if __name__ == "__main__":
 
         kps = np.array(config["kps"], dtype=np.float32)
         kds = np.array(config["kds"], dtype=np.float32)
+        # URDF effort 限幅（=训练 torque clip）；缺省 None 则不限幅（旧行为）
+        effort_limits = np.array(config["effort_limits"], dtype=np.float32) \
+            if "effort_limits" in config else None
 
         default_angles = np.array(config["default_angles"], dtype=np.float32)
 
@@ -158,6 +161,12 @@ if __name__ == "__main__":
         # When not active (disabled / no joystick), cmd stays at cmd_init.
         gamepad = GamepadController(config.get("gamepad", {}))
 
+        # g1_23dof 扩展键：高度观测通道 / 步态周期 / 初始高度。老配置(h1 等)缺省则保持旧行为
+        base_height_target = config.get("base_height_target", None)
+        height_obs_scale = config.get("height_obs_scale", 5.0)
+        gait_period = config.get("gait_period", 0.8)
+        init_height = config.get("init_height", None)
+
     # define context variables
     action = np.zeros(num_actions, dtype=np.float32)
     target_dof_pos = default_angles.copy()
@@ -170,6 +179,12 @@ if __name__ == "__main__":
     d = mujoco.MjData(m)
     m.opt.timestep = simulation_dt
 
+    # 初始姿态对齐训练 default_joint_angles（XML 零位=手臂前平举，开局偏差过大）
+    d.qpos[7:] = default_angles
+    if init_height is not None:
+        d.qpos[2] = init_height
+    mujoco.mj_forward(m, d)
+
     # load policy
     policy = torch.jit.load(policy_path)
 
@@ -179,6 +194,8 @@ if __name__ == "__main__":
         while viewer.is_running() and time.time() - start < simulation_duration:
             step_start = time.time()
             tau = pd_control(target_dof_pos, d.qpos[7:], kps, np.zeros_like(kds), d.qvel[6:], kds)
+            if effort_limits is not None:
+                tau = np.clip(tau, -effort_limits, effort_limits)
             d.ctrl[:] = tau
             # Apply mouse perturbation to the robot: in the passive viewer, double-clicking
             # a body + dragging only updates the visual `perturb` object unless we copy its
@@ -207,7 +224,7 @@ if __name__ == "__main__":
                 gravity_orientation = get_gravity_orientation(quat)
                 omega = omega * ang_vel_scale
 
-                period = 0.8
+                period = gait_period
                 count = counter * simulation_dt
                 phase = count % period / period
                 sin_phase = np.sin(2 * np.pi * phase)
@@ -219,7 +236,12 @@ if __name__ == "__main__":
                 obs[9 : 9 + num_actions] = qj
                 obs[9 + num_actions : 9 + 2 * num_actions] = dqj
                 obs[9 + 2 * num_actions : 9 + 3 * num_actions] = action
-                obs[9 + 3 * num_actions : 9 + 3 * num_actions + 2] = np.array([sin_phase, cos_phase])
+                # 高度观测(若有)：训练布局为 actions 后接 (z-target)*scale，再接 sin/cos 相位
+                idx = 9 + 3 * num_actions
+                if base_height_target is not None:
+                    obs[idx] = (d.qpos[2] - base_height_target) * height_obs_scale
+                    idx += 1
+                obs[idx : idx + 2] = np.array([sin_phase, cos_phase])
                 obs_tensor = torch.from_numpy(obs).unsqueeze(0)
                 # policy inference
                 action = policy(obs_tensor).detach().numpy().squeeze()

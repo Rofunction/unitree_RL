@@ -47,14 +47,17 @@ class G1Rough23dofCfg( G1RoughCfg ):
         stiffness = {**G1RoughCfg.control.stiffness,
                      'waist': 100,
                      'shoulder': 40,
+                     'shoulder_yaw': 40,
                      'elbow': 40,
                      'wrist': 5,
                      }  # [N*m/rad]
+        # kd 按各关节 I_eff 配 ζ（参照 12dof 腿: 髋≈0.11/膝≈0.48/踝≈1.4）且满足 β=kd·dt/I<2
         damping = {**G1RoughCfg.control.damping,
                     'waist': 2,
                     'shoulder': 2,
+                    'shoulder_yaw': 1.4,   # I≈4.3e-3, kd>1.63 会自激; 1.4→β=1.62, ζ=1.7
                     'elbow': 2,
-                    'wrist': 2.0,  # 0.5 时噪声激振 dof_vel²=1668 对奖励免疫；4倍阻尼掐源头
+                    'wrist': 0.05,   # I≈2e-4, kd≤0.067 才稳; 0.05→β=1.26, ζ=0.8
                     }  # [N*m*s/rad]
 
     class domain_rand(G1RoughCfg.domain_rand):
