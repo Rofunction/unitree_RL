@@ -54,7 +54,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
                     'waist': 2,
                     'shoulder': 2,
                     'elbow': 2,
-                    'wrist': 0.5,
+                    'wrist': 2.0,  # 0.5 时噪声激振 dof_vel²=1668 对奖励免疫；4倍阻尼掐源头
                     }  # [N*m*s/rad]
 
     class domain_rand(G1RoughCfg.domain_rand):
@@ -67,13 +67,16 @@ class G1Rough23dofCfg( G1RoughCfg ):
     class rewards( G1RoughCfg.rewards ):
         base_height_target = 0.78
         only_positive_rewards = False  # 站立净正前拆 clip 无信号；现靠 alive+罚项削减保证净 ≥ −0.022
-        class scales(G1RoughCfg.rewards.scales):
-            alive = 2.0
-            tracking_lin_vel = 2.0
-            tracking_ang_vel = 1.5 
-            dof_vel = -2e-4
+        class scales( G1RoughCfg.rewards.scales ):
+            alive = 1.0    # 姿态线已关+净+0.07/步稳：从2降1，收入重心从"活着"转"听指挥"(yaw 38000实测-2%被无视)
+            tracking_lin_vel = 2.0   # 站 0.005 vs 好步态 0.034/步：走路比站多赚 60%
+            tracking_ang_vel = 3.0   # 1.5 下 yaw 仍被弃(原地/边走边转均-2%)：翻倍+alive降1把转向拉出弃学区，学出后回1.5
+            dof_vel = -1e-3   # 只收腿+腰(env重写)：臂8dof的dof_vel读冻结伪值41.7，旧"抖振大头"是缓冲区伪影
             dof_acc = -1e-7
-            base_height = -10.0
+            base_height = -30.0     # -10 时 5cm 蹲幅仅罚 0.025(收入 4.3 的 0.6%)；-30 兜底，主约束靠 stance_knee
+            stance_knee = -3.0      # 支撑膝>0.55rad 罚平方：基线支撑膝中位 0.79→罚~0.06/腿，站直归零
+            gait_symmetry = -20.0   # 阶段二b：-5 在Δx=0.067处仅罚0.022(收入0.4%)形同虚设→27000回吐；-20 逼回≤0.05
+            orientation = -4.0      # -1 时 13° 后仰仅罚 0.05；先 -4 看 torso_pitch_deg，再决定是否 -6。gravity_x 负=后仰已实测核对
             feet_swing_height = -10.0
             collision = -0.5
             dof_pos_limits = -2.5
