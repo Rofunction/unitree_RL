@@ -42,6 +42,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
     class asset(G1RoughCfg.asset):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_23dof.urdf'
         penalize_contacts_on = ["hip", "knee", "shoulder", "elbow"]
+        armature = 0.01
 
     class control(G1RoughCfg.control):
         stiffness = {**G1RoughCfg.control.stiffness,
