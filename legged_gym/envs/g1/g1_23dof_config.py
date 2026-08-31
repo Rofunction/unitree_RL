@@ -65,6 +65,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
         added_mass_range = [-2., 4.]
 
     class commands(G1RoughCfg.commands):
+        resampling_time = 5.0  # 10→5s: 指令瞬变(含急停)暴露量翻倍, 补刹车练习
         class ranges(G1RoughCfg.commands.ranges):
             ang_vel_yaw = [-0.5, 0.5]
 
@@ -72,7 +73,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
         base_height_target = 0.78
         only_positive_rewards = False  # 站立净正前拆 clip 无信号；现靠 alive+罚项削减保证净 ≥ −0.022
         class scales( G1RoughCfg.rewards.scales ):
-            alive = 1.0    # 姿态线已关+净+0.07/步稳：从2降1，收入重心从"活着"转"听指挥"(yaw 38000实测-2%被无视)
+            alive = 0.5    # 7→2→1→0.5: 收入重心持续转"听指挥"; 防跪(脚承重门)与防速死(termination)已有专人
             tracking_lin_vel = 2.0   # 站 0.005 vs 好步态 0.034/步：走路比站多赚 60%
             tracking_ang_vel = 3.0   # 1.5 下 yaw 仍被弃(原地/边走边转均-2%)：翻倍+alive降1把转向拉出弃学区，学出后回1.5
             dof_vel = -1e-3   # 只收腿+腰(env重写)：臂8dof的dof_vel读冻结伪值41.7，旧"抖振大头"是缓冲区伪影
@@ -80,7 +81,7 @@ class G1Rough23dofCfg( G1RoughCfg ):
             base_height = -30.0     # -10 时 5cm 蹲幅仅罚 0.025(收入 4.3 的 0.6%)；-30 兜底，主约束靠 stance_knee
             stance_knee = -3.0      # 支撑膝>0.55rad 罚平方：基线支撑膝中位 0.79→罚~0.06/腿，站直归零
             gait_symmetry = -20.0   # 阶段二b：-5 在Δx=0.067处仅罚0.022(收入0.4%)形同虚设→27000回吐；-20 逼回≤0.05
-            orientation = -4.0      # -1 时 13° 后仰仅罚 0.05；先 -4 看 torso_pitch_deg，再决定是否 -6。gravity_x 负=后仰已实测核对
+            orientation = -20.0     # 躯干前倾窗[2.9°,6.9°]外平方罚+横滚全时罚(见env): 原vx比例参考在-4下形同虚设(参考+5°实测+0.2°), 倒走后仰-4.7°还会摔
             feet_swing_height = -10.0
             collision = -0.5
             dof_pos_limits = -2.5
@@ -91,6 +92,12 @@ class G1Rough23dofCfg( G1RoughCfg ):
             shoulder_yaw_pos = -5.0  # 肩yaw死区±8°外罚平方：防小臂外翻(model_8550 外翻常驻)
             wrist_pos = -1.0   # 腕roll无任务引用，罚漂移防常驻限位
             feet_collision = -0.5
+            leg_symmetry = -5.0  # EMA左右镜像(见env): model_4450 右腿学歪(roll 0.22/膝 0.13) → 罚 ~0.35/s
+            stand_still = -4.0   # -3→4且速度项0.05→0.1: 站桩稳(见env); 权重随|ωz|高斯衰减(v3.2): 硬豁免致搅拌、全税压死转向
+            swing_knee = -15.0   # 摆动膝下限0.3+0.55sin(πs)峰0.88rad(见env): 直腿钟摆(膝峰L0.65/R0.51,髋摆幅却0.4rad)在旧reward下免费
+            hip_roll_pos = -20.0 # 双髋外张(左+3.2°/右-3.9°一起张,镜像差0.012失明): hip_roll全库首次被罚 → ~-0.15/s
+            hip_pos = -10.0      # 4→10: 双髋yaw外旋(右+8°脚尖朝外)在-4下罚0.12/s两轮不收敛
+            straight_yaw = -5.0  # 直行yaw偏置(EMA τ=1s,见env): 线性罚|mean ωz|, 实测恒偏0.9-1.6°/s→13.9cm/m
             lin_vel_z = -2.0   # 抑制周期性上下速度，减少一蹲一蹲
             termination = -250.0  # 生效=scale×dt=−5/次摔倒：防"速死止损"套利
 

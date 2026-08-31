@@ -1,7 +1,7 @@
 # g1_23dof：关节顺序 = URDF/MuJoCo XML 顺序 = policy obs 顺序
 #   腿12(hip_pitch,hip_roll,hip_yaw,knee,ankle_pitch,ankle_roll ×左右) + 腰1 + 臂10(肩pitch/roll/yaw,肘,腕roll ×左右)
 # 增益来源 legged_gym/envs/g1/g1_config.py + g1_23dof_config.py（model_41000 训练时值）
-policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_lstm_1_23dof.pt"
+policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_lstm_1_23dof_1.pt"
 xml_path: "{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_23dof.xml"
 
 # Total simulation time
