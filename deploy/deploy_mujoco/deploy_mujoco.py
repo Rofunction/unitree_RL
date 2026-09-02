@@ -171,6 +171,9 @@ if __name__ == "__main__":
     action = np.zeros(num_actions, dtype=np.float32)
     target_dof_pos = default_angles.copy()
     obs = np.zeros(num_obs, dtype=np.float32)
+    # Match G1Robot23dof's phase-hold behavior: once a stop command arrives,
+    # finish the current gait cycle and hold phase at zero.
+    phase_hold = 0.0
 
     counter = 0
 
@@ -225,8 +228,17 @@ if __name__ == "__main__":
                 omega = omega * ang_vel_scale
 
                 period = gait_period
-                count = counter * simulation_dt
-                phase = count % period / period
+                policy_dt = simulation_dt * control_decimation
+                next_phase = phase_hold + policy_dt / period
+                moving = (
+                    np.linalg.norm(cmd[:2]) >= 0.2 or
+                    abs(float(cmd[2])) >= 0.15
+                )
+                if moving:
+                    phase_hold = next_phase % 1.0
+                elif phase_hold > 0.0:
+                    phase_hold = 0.0 if next_phase >= 1.0 else next_phase
+                phase = phase_hold
                 sin_phase = np.sin(2 * np.pi * phase)
                 cos_phase = np.cos(2 * np.pi * phase)
 

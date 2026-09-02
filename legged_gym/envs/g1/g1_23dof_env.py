@@ -151,12 +151,12 @@ class G1Robot23dof(G1Robot):
 
     def _resample_commands(self, env_ids):
         super()._resample_commands(env_ids)
-        # yaw 死区清除：一半重采样压到 |ωz|∈[0.2,0.5]，持续转向经验不被均匀采样稀释
-        # (纯转样本钉 xy=0 曾试 25% 占比: 转没学会(±0.35→~0)还把 xy=0 区域改写成"要动",
-        #  站桩塌成 -3.5rad/s 搅拌, 已撤回; 纯转要么另设计要么不做)
-        mask = torch.rand(len(env_ids), device=self.device) < 0.5
-        sign = torch.where(torch.rand(len(env_ids), device=self.device) < 0.5, -1.0, 1.0)[mask]
-        self.commands[env_ids[mask], 2] = sign * (0.2 + 0.3 * torch.rand(int(mask.sum()), device=self.device))
+        # Add a small, explicit zero-command population.  Keep it separate
+        # from turning samples so stationary behavior has a clean target.
+        fraction = float(getattr(self.cfg.commands, 'zero_command_fraction', 0.0))
+        if fraction > 0.0 and len(env_ids) > 0:
+            zero_ids = torch.rand(len(env_ids), device=self.device) < fraction
+            self.commands[env_ids[zero_ids], :3] = 0.0
 
     # 步态对称罚（阶段二启用，当前 config 无 scale）：EMA 常驻值，有运动指令才生效
     def _reward_gait_symmetry(self):
@@ -176,6 +176,34 @@ class G1Robot23dof(G1Robot):
                            - self.default_dof_pos[:, self.leg_ids]).sum(dim=1)
         vel = torch.square(self.dof_vel[:, self.leg_ids]).sum(dim=1)
         return w * (dev + 0.1 * vel)
+
+    def _zero_command_mask(self):
+        """Commands that should produce a stationary robot, not a turn."""
+        return (
+            (torch.norm(self.commands[:, :2], dim=1) < 0.1) &
+            (torch.abs(self.commands[:, 2]) < 0.1)
+        )
+
+    def _reward_zero_cmd_vel(self):
+        # Tracking rewards are flat at zero velocity, so add a direct gradient
+        # against residual body drift and yaw motion at a true stop.
+        zero = self._zero_command_mask().float()
+        base_xy = torch.sum(torch.square(self.base_lin_vel[:, :2]), dim=1)
+        yaw = torch.square(self.base_ang_vel[:, 2])
+        return zero * (base_xy + 0.25 * yaw)
+
+    def _reward_zero_cmd_foot_slip(self):
+        # Penalize horizontal support-foot motion only while stopped.  This
+        # targets the source of slow translation without taxing swing feet.
+        zero = self._zero_command_mask().float()
+        contact = torch.norm(
+            self.contact_forces[:, self.feet_indices, :3], dim=2
+        ) > 1.
+        slip = torch.sum(
+            torch.square(self.feet_vel[:, :, :2]) * contact.unsqueeze(-1),
+            dim=(1, 2),
+        )
+        return zero * slip
 
     # 摆动膝下限(单侧)：ref = 默认 + AMP·sin(πs)，直腿钟摆摆动在旧 reward 下免费
     # (feet_swing_height 只管脚高)。sin 两端归零不扰触地；站桩不泵膝(运动门控)

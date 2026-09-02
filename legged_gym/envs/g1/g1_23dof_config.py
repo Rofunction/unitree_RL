@@ -66,6 +66,8 @@ class G1Rough23dofCfg( G1RoughCfg ):
 
     class commands(G1RoughCfg.commands):
         resampling_time = 5.0  # 10→5s: 指令瞬变(含急停)暴露量翻倍, 补刹车练习
+        heading_command = False  # 23DoF部署直接使用yaw速度指令，训练端保持同一语义
+        zero_command_fraction = 0.10  # 显式提供零指令站立样本，避免只靠连续均匀采样碰到原点
         class ranges(G1RoughCfg.commands.ranges):
             ang_vel_yaw = [-0.5, 0.5]
 
@@ -98,6 +100,8 @@ class G1Rough23dofCfg( G1RoughCfg ):
             hip_roll_pos = -20.0 # 双髋外张(左+3.2°/右-3.9°一起张,镜像差0.012失明): hip_roll全库首次被罚 → ~-0.15/s
             hip_pos = -10.0      # 4→10: 双髋yaw外旋(右+8°脚尖朝外)在-4下罚0.12/s两轮不收敛
             straight_yaw = -5.0  # 直行yaw偏置(EMA τ=1s,见env): 线性罚|mean ωz|, 实测恒偏0.9-1.6°/s→13.9cm/m
+            zero_cmd_vel = -1.0    # 零指令时直接压制机身水平/yaw残余速度，弥补tracking reward在零速附近梯度太弱
+            zero_cmd_foot_slip = -0.5  # 零指令支撑脚水平滑动罚，减少原地缓慢漂移
             lin_vel_z = -2.0   # 抑制周期性上下速度，减少一蹲一蹲
             termination = -250.0  # 生效=scale×dt=−5/次摔倒：防"速死止损"套利
 
